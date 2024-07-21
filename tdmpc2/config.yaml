@@ -4,6 +4,7 @@ defaults:
 # environment
 task: dog-run
 obs: state
+obs_size: 64
 
 # evaluation
 checkpoint: ???
