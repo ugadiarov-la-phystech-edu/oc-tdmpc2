@@ -8,7 +8,7 @@ import mani_skill.envs
 MANISKILL_TASKS = {
     'push-cube': dict(
         env='PushCube-v1',
-        control_mode='pd_ee_delta_pos',
+        control_mode='pd_joint_delta_pos',
     ),
 }
 
