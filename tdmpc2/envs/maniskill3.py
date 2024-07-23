@@ -14,7 +14,7 @@ MANISKILL_TASKS = {
 
 
 class ManiSkillWrapper(gym.Wrapper):
-    def __init__(self, env, cfg):
+    def __init__(self, env, cfg, frame_skip=1):
         super().__init__(env)
         self.env = env
         self.cfg = cfg
@@ -26,6 +26,7 @@ class ManiSkillWrapper(gym.Wrapper):
             dtype=self.env.action_space.dtype,
         )
         self.env.reset(seed=cfg.seed)
+        self.frame_skip = frame_skip
         self.last_observation = None
 
     @staticmethod
@@ -43,7 +44,7 @@ class ManiSkillWrapper(gym.Wrapper):
 
     def step(self, action):
         reward = 0
-        for _ in range(2):
+        for _ in range(self.frame_skip):
             obs, r, terminated, truncated, info = self._unravel(self.env.step(action))
             reward += r
             if terminated or truncated:
