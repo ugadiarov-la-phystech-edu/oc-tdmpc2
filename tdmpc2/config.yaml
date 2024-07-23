@@ -65,6 +65,8 @@ simnorm_dim: 8
 # logging
 wandb_project: ???
 wandb_entity: ???
+wandb_group_name: ???
+wandb_run_name: ???
 wandb_silent: false
 disable_wandb: true
 save_csv: true

@@ -8,13 +8,13 @@ import mani_skill.envs
 MANISKILL_TASKS = {
     'push-cube': dict(
         env='PushCube-v1',
-        control_mode='pd_joint_delta_pos',
+        control_mode='pd_ee_delta_pos',
     ),
 }
 
 
 class ManiSkillWrapper(gym.Wrapper):
-    def __init__(self, env, cfg, frame_skip=1):
+    def __init__(self, env, cfg, frame_skip=2):
         super().__init__(env)
         self.env = env
         self.cfg = cfg
@@ -47,11 +47,9 @@ class ManiSkillWrapper(gym.Wrapper):
         for _ in range(self.frame_skip):
             obs, r, terminated, truncated, info = self._unravel(self.env.step(action))
             reward += r
-            if terminated or truncated:
-                break
 
         self.last_observation = obs.numpy()
-        return self.last_observation.copy(), reward, terminated, info
+        return self.last_observation.copy(), reward, False, info
 
     @property
     def unwrapped(self):
@@ -76,7 +74,7 @@ def make_env(cfg):
         render_mode='rgb_array',
         sensor_configs=dict(width=cfg.obs_size, height=cfg.obs_size),
     )
-    env = ManiSkillWrapper(env, cfg)
+    env = ManiSkillWrapper(env.env, cfg)
     env = TimeLimit(env, max_episode_steps=100)
     env.max_episode_steps = env._max_episode_steps
     return env

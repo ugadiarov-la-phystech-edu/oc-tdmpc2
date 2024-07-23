@@ -1,5 +1,5 @@
 import os
-import datetime
+from datetime import datetime
 import re
 import numpy as np
 import pandas as pd
@@ -116,6 +116,8 @@ class Logger:
 		print_run(cfg)
 		self.project = cfg.get("wandb_project", "none")
 		self.entity = cfg.get("wandb_entity", "none")
+		self.run_name = f'{cfg.get("wandb_run_name", str(datetime.now()))}_{str(cfg.seed)}'
+		self.group_name = cfg.get("wandb_group_name", self._group)
 		if cfg.disable_wandb or self.project == "none" or self.entity == "none":
 			print(colored("Wandb disabled.", "blue", attrs=["bold"]))
 			cfg.save_agent = False
@@ -129,8 +131,8 @@ class Logger:
 		wandb.init(
 			project=self.project,
 			entity=self.entity,
-			name=str(cfg.seed),
-			group=self._group,
+			name=self.run_name,
+			group=self.group_name,
 			tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
 			dir=self._log_dir,
 			config=OmegaConf.to_container(cfg, resolve=True),
