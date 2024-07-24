@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+import datetime
 import re
 import numpy as np
 import pandas as pd
@@ -116,7 +116,7 @@ class Logger:
 		print_run(cfg)
 		self.project = cfg.get("wandb_project", "none")
 		self.entity = cfg.get("wandb_entity", "none")
-		self.run_name = f'{cfg.get("wandb_run_name", str(datetime.now()))}_{str(cfg.seed)}'
+		self.run_name = f'{cfg.get("wandb_run_name", str(datetime.datetime.now()))}_{str(cfg.seed)}'
 		self.group_name = cfg.get("wandb_group_name", self._group)
 		if cfg.disable_wandb or self.project == "none" or self.entity == "none":
 			print(colored("Wandb disabled.", "blue", attrs=["bold"]))
