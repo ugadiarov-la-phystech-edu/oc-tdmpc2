@@ -67,7 +67,7 @@ def make_env(cfg):
     """
     if cfg.task not in MANISKILL_TASKS:
         raise ValueError('Unknown task:', cfg.task)
-    assert cfg.obs == 'rgb', 'This task only supports state observations.'
+    assert cfg.obs in ('rgb', 'slots'), 'This task supports only image-based and slot-based observations.'
     task_cfg = MANISKILL_TASKS[cfg.task]
     env = gymnasium.make(
         task_cfg['env'],
@@ -76,7 +76,9 @@ def make_env(cfg):
         render_mode='rgb_array',
         sensor_configs=dict(width=cfg.obs_size, height=cfg.obs_size),
     )
-    env = ManiSkillWrapper(env.env, cfg)
+    # Unwrap TimeLimit wrapper
+    env = env.env
+    env = ManiSkillWrapper(env, cfg)
     env = TimeLimit(env, max_episode_steps=100)
     env.max_episode_steps = env._max_episode_steps
     return env

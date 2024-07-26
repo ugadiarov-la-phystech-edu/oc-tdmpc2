@@ -133,7 +133,7 @@ class RobosuiteEnv(gym.Env):
         self._env = env
         self._last_frame = None
         self._crop = ((18, 202), (36, 220))
-        observation_space = (self._crop[0][1] - self._crop[0][0], self._crop[1][1] - self._crop[1][0], 3)
+        observation_space = (self.cfg.obs_size, self.cfg.obs_size, 3)
         self.observation_space = gym.spaces.Box(0, 255, observation_space, dtype=np.uint8, seed=self._seed)
 
         low, high = self._env.action_spec
@@ -161,7 +161,7 @@ def make_env(cfg):
     """
     if cfg.task not in ROBOSUITE_TASKS:
         raise ValueError('Unknown task:', cfg.task)
-    assert cfg.obs == 'rgb', 'This task only supports state observations.'
+    assert cfg.obs in ('rgb', 'slots'), 'This task supports only image-based and slot-based observations.'
     env = RobosuiteEnv(cfg)
     env = TimeLimit(env, max_episode_steps=ROBOSUITE_TASKS[cfg.task]['horizon'])
     env.max_episode_steps = env._max_episode_steps

@@ -2,10 +2,14 @@ from copy import deepcopy
 import warnings
 
 import gym
+import torch
 
 from envs.wrappers.multitask import MultitaskWrapper
 from envs.wrappers.pixels import PixelWrapper
+from envs.wrappers.slots import SlotExtractorWrapper
 from envs.wrappers.tensor import TensorWrapper
+from ocr.tools import Dinosaur, SlotExtractor
+
 
 def missing_dependencies(task):
 	raise ValueError(f'Missing dependencies for task {task}; install dependencies to use this environment.')
@@ -79,9 +83,24 @@ def make_env(cfg):
 				pass
 		if env is None:
 			raise ValueError(f'Failed to make environment "{cfg.task}": please verify that dependencies are installed and that the task exists.')
-		env = TensorWrapper(env)
-	if cfg.get('obs', 'state') == 'rgb':
+
+	obs_type = cfg.get('obs', 'state')
+	if obs_type == 'rgb':
 		env = PixelWrapper(cfg, env)
+	elif obs_type == 'slots':
+		dinosaur = Dinosaur(cfg.dino_model_name, cfg.n_slots, cfg.slot_dim, cfg.input_feature_dim, cfg.num_patches,
+							cfg.features)
+		state_dict = torch.load(cfg.slot_extractor_checkpoint_path)['state_dict']
+		state_dict = {key[len('models.'):]: value for key, value in state_dict.items()}
+		dinosaur.load_state_dict(state_dict)
+		dinosaur = dinosaur.requires_grad_(False)
+		dinosaur = dinosaur.eval()
+		slot_extractor = SlotExtractor(model=dinosaur, device=cfg.slot_extractor_device)
+		env = SlotExtractorWrapper(cfg, env, slot_extractor)
+
+	if not cfg.multitask:
+		env = TensorWrapper(env)
+
 	try: # Dict
 		cfg.obs_shape = {k: v.shape for k, v in env.observation_space.spaces.items()}
 	except: # Box

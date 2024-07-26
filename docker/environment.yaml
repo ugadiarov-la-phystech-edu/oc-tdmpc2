@@ -42,6 +42,8 @@ dependencies:
     - tensordict-nightly==2024.3.26
     - termcolor==2.4.0
     - torchrl-nightly==2024.3.26
+    - torchtyping==0.1.4
+    - timm==0.6.13
     - transforms3d==0.4.1
     - trimesh==4.0.9
     - tqdm==4.66.1

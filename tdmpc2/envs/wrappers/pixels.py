@@ -2,7 +2,6 @@ from collections import deque
 
 import gym
 import numpy as np
-import torch
 
 
 class PixelWrapper(gym.Wrapper):
@@ -25,7 +24,7 @@ class PixelWrapper(gym.Wrapper):
 			mode='rgb_array', width=self._render_size, height=self._render_size
 		).transpose(2, 0, 1)
 		self._frames.append(frame)
-		return torch.from_numpy(np.concatenate(self._frames))
+		return np.concatenate(self._frames)
 
 	def reset(self):
 		self.env.reset()

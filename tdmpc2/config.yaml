@@ -3,7 +3,7 @@ defaults:
 
 # environment
 task: dog-run
-obs: state
+obs: rgb
 obs_size: 64
 
 # evaluation
@@ -75,6 +75,16 @@ save_csv: true
 save_video: true
 save_agent: true
 seed: 1
+
+# slot extractor
+dino_model_name: vit_base_patch16_224_dino
+n_slots: 5
+slot_dim: 64
+input_feature_dim: 768
+num_patches: 196
+features: [2048, 2048, 2048]
+slot_extractor_checkpoint_path: ???
+slot_extractor_device: cuda
 
 # convenience
 work_dir: ???
