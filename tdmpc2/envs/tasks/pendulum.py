@@ -20,24 +20,24 @@ def get_model_and_assets():
 
 @pendulum.SUITE.add('custom')
 def spin(time_limit=_DEFAULT_TIME_LIMIT, random=None,
-            environment_kwargs=None):
-  """Returns pendulum spin task."""
-  physics = pendulum.Physics.from_xml_string(*get_model_and_assets())
-  task = Spin(random=random)
-  environment_kwargs = environment_kwargs or {}
-  return control.Environment(
-      physics, task, time_limit=time_limit, **environment_kwargs)
+         environment_kwargs=None):
+    """Returns pendulum spin task."""
+    physics = pendulum.Physics.from_xml_string(*get_model_and_assets())
+    task = Spin(random=random)
+    environment_kwargs = environment_kwargs or {}
+    return control.Environment(
+        physics, task, time_limit=time_limit, **environment_kwargs)
 
 
 class Spin(pendulum.SwingUp):
-  """A custom Pendulum Spin task."""
+    """A custom Pendulum Spin task."""
 
-  def __init__(self, random=None):
-    super().__init__(random=random)
+    def __init__(self, random=None):
+        super().__init__(random=random)
 
-  def get_reward(self, physics):
-    return rewards.tolerance(np.linalg.norm(physics.angular_velocity()),
-                             bounds=(_TARGET_SPEED, float('inf')),
-                             margin=_TARGET_SPEED/2,
-                             value_at_margin=0.5,
-                            sigmoid='linear')
+    def get_reward(self, physics):
+        return rewards.tolerance(np.linalg.norm(physics.angular_velocity()),
+                                 bounds=(_TARGET_SPEED, float('inf')),
+                                 margin=_TARGET_SPEED / 2,
+                                 value_at_margin=0.5,
+                                 sigmoid='linear')

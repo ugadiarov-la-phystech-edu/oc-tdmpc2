@@ -1,153 +1,117 @@
-<h1>TD-MPC2</span></h1>
+# Объектно-центрированное обучение с подкреплением с прогнозирующими моделями
+Основано на [оригинальном репозитории TD-MPC2](https://github.com/nicklashansen/tdmpc2)
+## 1 Введение
+### 1.1 Объектно центрированное обучение
+Человеческое восприятие объектно-ориентировано. При восприятии сцены люди выделяют ключевые компоненты, такие как объекты, их границы и пространство вокруг них. Ожидается, что выделение из неструктурированных данных (изображений) представлений, соответствующих отдельным сущностям, улучшит обобщающую способность нейронных сетей. Например, полученные представления объектов можно будет повторно использовать для предсказания свойств новых комбинаций объектов, отсутствующих в обучающей выборке. Самые эффективные методы объектно-центрированного обучения без учителя используют модуль Slot Attention, который группирует признаки, соответствующие одному объекту на изображении, в отдельные векторы фиксированной длины — слоты.
+### 1.2 Обучение с подкреплением с прогнозирующими моделями
+Методы семейства TD-MPC направлены на поиск оптимальной стратегии, объединяя планирования и обучения с подкреплением. В процессе обучения создаётся модель, прогнозирующая динамику среды и вознаграждение, что позволяет выбрать такую последовательность действий, которая приведёт к максимальной отдаче с точки зрения текущей модели среды. Из-за вычислительной сложности планирования оптимизируется достаточно короткая последовательность действий, при этом модель полезности действий, обученная с использованием метода временных различий (TD), используется для прогнозирования отдачи, которую получит агент при выполнение действий за горизонтом планирования.
+## 2 Описание задачи
+### 2.1 Object-Centric TD-MPC2
+Предлагается реализовать объектно-центрированный вариант TD-MPC2, где модель среды предсказывает динамику представлений отдельных объектов. В качестве кодировщика предлагается использовать предобученную модель [Dinosaur](https://arxiv.org/abs/2209.14860), которая извлекает из изображения множество объектных представлений — слотов. В оригинальном TD-MPC2 модели динамики, вознаграждения, полезности и стратегии представляют собой многослойные персептроны. Для работы со слотовым представлением эти компоненты предлагается реализовать с помощью графовых нейронных сетей (*можете предложить свою архитектуру*).
+### 2.2 Описание сред
+Реализованный алгоритм будет тестироваться в симуляционных средах для задач робототехники с непрерывным пространством действий и плотным вознаграждением.
+#### 2.2.1 Задача Block Lifting в среде Robosuite
+Красный куб размещён на столе. Управляя манипулятором, агент должен поднять куб над столом. Более подробное описание среды и визуализация задачи в [документации](https://robosuite.ai/docs/modules/environments.html#block-lifting).
+#### *2.2.2\* Задача PushCube-v1 в среде ManiSkill (опционально)*
+Синий куб размещён на столе. Управляя манипулятором, агент должен сдвинуть синий куб в целевую область на столе. Более подробное описание среды в [документации](https://maniskill.readthedocs.io/en/latest/tasks/table_top_gripper/index.html#pushcube-v1).
+### 2.3 Оценка решения
+Оценка решения задачи будет производиться путём сравнения эффективности обучения разработанного алгоритма и оригинального TD-MPC2.
+## 3 Реализация
+Для визуализации логов рекомендуется использовать сервис [wandb](https://wandb.ai/site).
+### 3.1 Baseline (TD-MPC2)
+Базовый алгоритм для сравнения - оригинальный TD-MPC2.
 
-Official implementation of
+Запуск TD-MPC2 для задачи Block Lifting в среде Robosuite:
+```
+export WANDB_API_KEY=${your_wandb_api_key}
+python tdmpc2/train.py task=lift obs=rgb obs_size=64 time_limit=125 model_size=48 batch_size=512 seed=0 eval_episodes=30 eval_freq=50000 wandb_project=tdmpc2_robosuite_lift wandb_entity=${your_entity_name} wandb_group_name=monolithic wandb_run_name=monolithic disable_wandb=false
+```
+*Запуск TD-MPC2 для задачи PushCube-v1 в среде ManiSkill (опционально):*
+```
+export WANDB_API_KEY=${your_wandb_api_key}
+python tdmpc2/train.py task=push-cube obs=rgb obs_size=64 time_limit=100 model_size=48 batch_size=512 seed=0 eval_episodes=30 eval_freq=50000 wandb_project=tdmpc2_maniskill_push-cube wandb_entity=${your_entity_name} wandb_group_name=monolithic wandb_run_name=monolithic disable_wandb=false
+```
+**Визуализация метрик обучения TD-MPC2 в [Block Lifting](https://wandb.ai/ula_elfray/tdmpc2_robosuite-lift) и [PushCube-v1](https://wandb.ai/ula_elfray/tdmpc2_maniskill-push-cube).** 
+### 3.2 Object-centric TD-MPC2
+#### 3.2.1 Слотовый кодировщик: Dinosaur
+Для извлечения неупорядоченного множества слотов из изображения применяется модель [Dinosaur](https://arxiv.org/abs/2209.14860): $\text{Dinosaur}(\text{image}) \rightarrow \boldsymbol{z} = \{z ^ 1, \dots, z ^ K \}$, где $z ^ i$ - слот $i$, $K$ - количество слотов.
+Код Dinosaur расположен в `tdmpc2/ocr/tools.py`.
+Веса предобученных моделей: [Block Lifting (Robosuite)](https://drive.google.com/file/d/1dj5Oq-iP-wDTC7StOOsNHULxONDQZ8LQ/view?usp=drive_link) и [PushCube-v1 (ManiSkill)](https://drive.google.com/file/d/1v0gjazJPzBLyWDgBmwtDBnBVNXbVokf7/view?usp=sharing).
+Модель используется с замороженными весами в обёртке `SlotExtractorWrapper` в `tdmpc2/envs/wrappers/slots.py` для преобразования изображения в множество слотов.
+Пример выделения объектов с предобученной моделью Dinosaur в среде Robosuite:
+</br><img src="assets/robosuite_dinosaur.gif" width="100%"></br>
+#### 3.2.2 Объектно-центрированная модель среды на основе графовых нейронных сетей
+Код объектно-центрированной модели `OCWorldModel` с небольшими изменениями повторяет код оригинальной модели TD-MPC2 `WorldModel` (`tdmpc2/common/world_model.py`), но зависит от классов `OCDynamicsModel`, `OCRewardModel`, `OCPolicy`, **которые необходимо реализовать**.
+В отличие от `WorldModel`, на вход `OCWorldModel` подаётся факторизованное состояние среды в виде множества слотов $\boldsymbol{z}_t = (z_t ^ 1, \dots, z_t ^ K)$.
+Эти множества мы можем рассматривать как полные графы и обрабатывать их с помощью графовых нейронных сетей (Graph Neural Network - GNN).
+GNN состоит из двух MLP: модели вершины $\texttt{node}$ и модели ребра $\texttt{edge}$.
+Модель ребра для пары вершин и действия рассчитывает эмбеддинг ребра $\texttt{edge} (z_t ^ i, z_t ^ j, a_t))$.
+Модель вершины принимает на вход слот, действие и сумму эмбеддингов входящих в вершину рёбер, и выдаёт эмбеддинг вершины.
+Класс GNN реализован в `tdmpc2/common/layers.py`.
+##### 3.2.2.1 OCDynamicsModel:
+Предсказывает значение слотов при совершении действия $a$. 
 
-[TD-MPC2: Scalable, Robust World Models for Continuous Control](https://www.tdmpc2.com) by
+Вход модели: множество слотов $\boldsymbol{z}_t$ для текущего шага $t$ и действие $a_t$.
 
-[Nicklas Hansen](https://nicklashansen.github.io), [Hao Su](https://cseweb.ucsd.edu/~haosu)\*, [Xiaolong Wang](https://xiaolonw.github.io)\* (UC San Diego)</br>
+Выход модели: предсказанный множество слотов $\hat{\boldsymbol{z}}_{t+1}$ для следующего шага.
 
-<img src="assets/0.gif" width="12.5%"><img src="assets/1.gif" width="12.5%"><img src="assets/2.gif" width="12.5%"><img src="assets/3.gif" width="12.5%"><img src="assets/4.gif" width="12.5%"><img src="assets/5.gif" width="12.5%"><img src="assets/6.gif" width="12.5%"><img src="assets/7.gif" width="12.5%"></br>
+Выход модели вершины $\texttt{node}$ интерпретируется как предсказание значение эмбеддинга для следующего шага.
 
-[[Website]](https://www.tdmpc2.com) [[Paper]](https://arxiv.org/abs/2310.16828) [[Models]](https://www.tdmpc2.com/models)  [[Dataset]](https://www.tdmpc2.com/dataset)
+$\hat{z} ^ i = \texttt{node} (z_t ^ i, a_t, \sum_{j \neq i} \texttt{edge} (z_t ^ i, z_t ^ j, a_t))$
+##### 3.2.2.2 OCRewardModel:
+Предсказывает вознаграждение при совершении действия $a$.
 
-----
+Вход модели: множество слотов $\boldsymbol{z}_t$ для текущего шага $t$ и действие $a_t$.
 
-## Overview
+Выход модели: один вектор $\text{embed}$ (эмбеддинг графа), на основании которого рассчитывается вознаграждение.
 
-TD-MPC**2** is a scalable, robust model-based reinforcement learning algorithm. It compares favorably to existing model-free and model-based methods across **104** continuous control tasks spanning multiple domains, with a *single* set of hyperparameters (*right*). We further demonstrate the scalability of TD-MPC**2** by training a single 317M parameter agent to perform **80** tasks across multiple domains, embodiments, and action spaces (*left*). 
+Для получения единого вектора применяется операция READOUT, инвариантная относительно перестановки вершин в графе, например, усреднение эмбеддингов вершин, их сумма, min, max и т.д.
+mean-READOUT: $\text{embed} = MLP \[ \sum_{i = 1} \texttt{node} (z_t ^ i, a_t, \sum_{j \neq i} \texttt{edge} (z_t ^ i, z_t ^ j, a_t)) / K\]$
+##### 3.2.2.3 OCPolicy:
+Предсказывает $\hat{\mu}$ и $\hat{\sigma}$ для распределения действий, моделируемого нормальным распределением.
 
-<img src="assets/8.png" width="100%" style="max-width: 640px"><br/>
+Вход модели: множество слотов $\boldsymbol{z}_t$ для текущего шага $t$ .
 
-This repository contains code for training and evaluating both single-task online RL and multi-task offline RL TD-MPC**2** agents. We additionally open-source **300+** [model checkpoints](https://www.tdmpc2.com/models) (including 12 multi-task models) across 4 task domains: [DMControl](https://arxiv.org/abs/1801.00690), [Meta-World](https://meta-world.github.io/), [ManiSkill2](https://maniskill2.github.io/), and [MyoSuite](https://sites.google.com/view/myosuite), as well as our [30-task and 80-task datasets](https://www.tdmpc2.com/dataset) used to train the multi-task models. Our codebase supports both state and pixel observations. We hope that this repository will serve as a useful community resource for future research on model-based RL.
+Выход модели: один вектор $\text{embed}$, на основании которого рассчитывается мат. ожидание и дисперсия распределения действий.
 
-----
+Архитектура повторяет `OCRewardModel`, но не зависит от действия.
 
-## Getting started
+$\text{embed} = MLP \[ \sum_{i = 1} \texttt{node} (z_t ^ i, \sum_{j \neq i} \texttt{edge} (z_t ^ i, z_t ^ j)) / K\]$
+##### 3.2.2.4 Функция полезности действий Q:
+Предсказывает полезность действия $a$.
 
-You will need a machine with a GPU and at least 12 GB of RAM for single-task online RL with TD-MPC**2**, and 128 GB of RAM for multi-task offline RL on our provided 80-task dataset. A GPU with at least 8 GB of memory is recommended for single-task online RL and for evaluation of the provided multi-task models (up to 317M parameters). Training of the 317M parameter model requires a GPU with at least 24 GB of memory.
+Вход модели: множество слотов $\boldsymbol{z}_t$ для текущего шага $t$ и действие $a_t$.
 
-We provide a `Dockerfile` for easy installation. You can build the docker image by running
+Выход модели: один вектор $\text{embed}$, на основании которого рассчитывается полезность.
 
+Архитектура полностью повторяет `OCRewardModel`, но в TD-MPC2 используется ансамбль из нескольких моделей для предсказания полезности.
+### 3.2.3 Запуск
+Дополнительные параметры, связанные с использованием Dinosaur: `n_slots` - количество извлекаемых слотов, `slot_dim` - размерность слота, `slot_extractor_checkpoint_path` - путь к чекпоинту модели Dinosaur,
+`dino_model_name` - тип модели DINO, `num_patches` - количество используемых патчей в моделе DINO, `input_feature_dim` - размерность входного вектора признаков,
+`features` - размерности SlotAttention.
+
+Параметры, с которыми следует запускать объектно-центрированные варианты TD-MPC2: 
+Запуск Object-Centric TD-MPC2 для задачи Block Lifting в среде Robosuite:
+```
+export WANDB_API_KEY=${your_wandb_api_key}
+python tdmpc2/train.py task=lift obs=slots obs_size=224 time_limit=125 model_size=48 batch_size=512 seed=0 eval_episodes=30 eval_freq=50000 n_slots=5 slot_dim=64 slot_extractor_checkpoint_path=${path/to/dinosaur/checkpoint} wandb_project=tdmpc2_robosuite_lift wandb_entity=${your_entity_name} wandb_group_name=slots wandb_run_name=slots disable_wandb=false
+```
+*Запуск Object-Cenric TD-MPC2 для задачи PushCube-v1 в среде ManiSkill (опционально):*
+```
+export WANDB_API_KEY=${your_wandb_api_key}
+python tdmpc2/train.py task=push-cube obs=slots obs_size=224 time_limit=100 model_size=48 batch_size=512 seed=0 eval_episodes=30 eval_freq=50000 dino_model_name=vit_small_patch8_224_dino n_slots=4 slot_dim=128 input_feature_dim=384 num_patches=784 features=\[1024,1024,1024\] slot_extractor_checkpoint_path=${path/to/dinosaur/checkpoint} wandb_project=tdmpc2_maniskill_push-cube wandb_entity=${your_entity_name} wandb_group_name=slots wandb_run_name=slots disable_wandb=false
+```
+### 3.2.3 Отладка
+В TD-MPC2 перед началом обучения происходит первичное заполнение буфера прецендентов.
+Для ускорения отладки кода, чтобы не ждать долго заполнения буфера, запуск можно осуществлять со следующими параметрами: `buffer_size=1000 eval_episodes=1 time_limit=20`.
+## 4 Окружение
+### 4.1 Docker
+Сбор docker-образа:
 ```
 cd docker && docker build . -t <user>/tdmpc2:1.0.0
 ```
-
-This docker image contains all dependencies needed for running DMControl, Meta-World, and ManiSkill2 experiments.
-
-If you prefer to install dependencies manually, start by installing dependencies via `conda` by running the following command:
-
+### 4.2 Conda
+Локальная установка зависимостей через `conda`:
 ```
 conda env create -f docker/environment.yaml
-pip install gym==0.21.0
 ```
-
-The `environment.yaml` file installs dependencies required for training on DMControl tasks. Other domains can be installed by following the instructions in `environment.yaml`.
-
-If you want to run ManiSkill2, you will additionally need to download and link the necessary assets by running
-
-```
-python -m mani_skill2.utils.download_asset all
-```
-
-which downloads assets to `./data`. You may move these assets to any location. Then, add the following line to your `~/.bashrc`:
-
-```
-export MS2_ASSET_DIR=<path>/<to>/<data>
-```
-
-and restart your terminal. Meta-World additionally requires MuJoCo 2.1.0. We host the unrestricted MuJoCo 2.1.0 license (courtesy of Google DeepMind) at [https://www.tdmpc2.com/files/mjkey.txt](https://www.tdmpc2.com/files/mjkey.txt). You can download the license by running
-
-```
-wget https://www.tdmpc2.com/files/mjkey.txt -O ~/.mujoco/mjkey.txt
-```
-
-See `docker/Dockerfile` for installation instructions if you do not already have MuJoCo 2.1.0 installed. MyoSuite requires `gym==0.13.0` which is incompatible with Meta-World and ManiSkill2. Install separately with `pip install myosuite` if desired. Depending on your existing system packages, you may need to install other dependencies. See `docker/Dockerfile` for a list of recommended system packages.
-
-----
-
-## Supported tasks
-
-This codebase currently supports **104** continuous control tasks from **DMControl**, **Meta-World**, **ManiSkill2**, and **MyoSuite**. Specifically, it supports 39 tasks from DMControl (including 11 custom tasks), 50 tasks from Meta-World, 5 tasks from ManiSkill2, and 10 tasks from MyoSuite, and covers all tasks used in the paper. See below table for expected name formatting for each task domain:
-
-| domain | task
-| --- | --- |
-| dmcontrol | dog-run
-| dmcontrol | cheetah-run-backwards
-| metaworld | mw-assembly
-| metaworld | mw-pick-place-wall
-| maniskill | pick-cube
-| maniskill | pick-ycb
-| myosuite  | myo-key-turn
-| myosuite  | myo-key-turn-hard
-
-which can be run by specifying the `task` argument for `evaluation.py`. Multi-task training and evaluation is specified by setting `task=mt80` or `task=mt30` for the 80-task and 30-task sets, respectively.
-
-**As of Dec 27, 2023 the TD-MPC2 codebase also supports pixel observations for DMControl tasks**; use argument `obs=rgb` if you wish to train visual policies.
-
-
-## Example usage
-
-We provide examples on how to evaluate our provided TD-MPC**2** checkpoints, as well as how to train your own TD-MPC**2** agents, below.
-
-### Evaluation
-
-See below examples on how to evaluate downloaded single-task and multi-task checkpoints.
-
-```
-$ python evaluate.py task=mt80 model_size=48 checkpoint=/path/to/mt80-48M.pt
-$ python evaluate.py task=mt30 model_size=317 checkpoint=/path/to/mt30-317M.pt
-$ python evaluate.py task=dog-run checkpoint=/path/to/dog-1.pt save_video=true
-```
-
-All single-task checkpoints expect `model_size=5`. Multi-task checkpoints are available in multiple model sizes. Available arguments are `model_size={1, 5, 19, 48, 317}`. Note that single-task evaluation of multi-task checkpoints is currently not supported. See `config.yaml` for a full list of arguments.
-
-### Training
-
-See below examples on how to train TD-MPC**2** on a single task (online RL) and on multi-task datasets (offline RL). We recommend configuring [Weights and Biases](https://wandb.ai) (`wandb`) in `config.yaml` to track training progress.
-
-```
-$ python train.py task=mt80 model_size=48 batch_size=1024
-$ python train.py task=mt30 model_size=317 batch_size=1024
-$ python train.py task=dog-run steps=7000000
-$ python train.py task=walker-walk obs=rgb
-```
-
-We recommend using default hyperparameters for single-task online RL, including the default model size of 5M parameters (`model_size=5`). Multi-task offline RL benefits from a larger model size, but larger models are also increasingly costly to train and evaluate. Available arguments are `model_size={1, 5, 19, 48, 317}`. See `config.yaml` for a full list of arguments.
-
-**As of Jan 7, 2024 the TD-MPC2 codebase also supports multi-GPU training for multi-task offline RL experiments**; use branch `distributed` and argument `world_size=N` to train on `N` GPUs. We cannot guarantee that distributed training will yield the same results, but they appear to be similar based on our limited testing.
-
-----
-
-## Citation
-
-If you find our work useful, please consider citing our paper as follows:
-
-```
-@inproceedings{hansen2024tdmpc2,
-  title={TD-MPC2: Scalable, Robust World Models for Continuous Control}, 
-  author={Nicklas Hansen and Hao Su and Xiaolong Wang},
-  booktitle={International Conference on Learning Representations (ICLR)},
-  year={2024}
-}
-```
-as well as the original TD-MPC paper:
-```
-@inproceedings{hansen2022tdmpc,
-  title={Temporal Difference Learning for Model Predictive Control},
-  author={Nicklas Hansen and Xiaolong Wang and Hao Su},
-  booktitle={International Conference on Machine Learning (ICML)},
-  year={2022}
-}
-```
-
-----
-
-## Contributing
-
-You are very welcome to contribute to this project. Feel free to open an issue or pull request if you have any suggestions or bug reports, but please review our [guidelines](CONTRIBUTING.md) first. Our goal is to build a codebase that can easily be extended to new environments and tasks, and we would love to hear about your experience!
-
-----
-
-## License
-
-This project is licensed under the MIT License - see the `LICENSE` file for details. Note that the repository relies on third-party code, which is subject to their respective licenses.

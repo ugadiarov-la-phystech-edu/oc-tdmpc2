@@ -24,66 +24,66 @@ def get_model_and_assets(links):
 
 @reacher.SUITE.add('custom')
 def three_easy(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
-  """Returns three-link reacher with sparse reward with 5e-2 tol and randomized target."""
-  physics = Physics.from_xml_string(*get_model_and_assets(links=3))
-  task = CustomThreeLinkReacher(target_size=_BIG_TARGET, random=random)
-  environment_kwargs = environment_kwargs or {}
-  return control.Environment(
-      physics, task, time_limit=time_limit, **environment_kwargs)
+    """Returns three-link reacher with sparse reward with 5e-2 tol and randomized target."""
+    physics = Physics.from_xml_string(*get_model_and_assets(links=3))
+    task = CustomThreeLinkReacher(target_size=_BIG_TARGET, random=random)
+    environment_kwargs = environment_kwargs or {}
+    return control.Environment(
+        physics, task, time_limit=time_limit, **environment_kwargs)
 
 
 @reacher.SUITE.add('custom')
 def three_hard(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
-  """Returns three-link reacher with sparse reward with 1e-2 tol and randomized target."""
-  physics = Physics.from_xml_string(*get_model_and_assets(links=3))
-  task = CustomThreeLinkReacher(target_size=_SMALL_TARGET, random=random)
-  environment_kwargs = environment_kwargs or {}
-  return control.Environment(
-      physics, task, time_limit=time_limit, **environment_kwargs)
+    """Returns three-link reacher with sparse reward with 1e-2 tol and randomized target."""
+    physics = Physics.from_xml_string(*get_model_and_assets(links=3))
+    task = CustomThreeLinkReacher(target_size=_SMALL_TARGET, random=random)
+    environment_kwargs = environment_kwargs or {}
+    return control.Environment(
+        physics, task, time_limit=time_limit, **environment_kwargs)
 
 
 @reacher.SUITE.add('custom')
 def four_easy(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
-  """Returns three-link reacher with sparse reward with 5e-2 tol and randomized target."""
-  physics = Physics.from_xml_string(*get_model_and_assets(links=4))
-  task = CustomThreeLinkReacher(target_size=_BIG_TARGET, random=random)
-  environment_kwargs = environment_kwargs or {}
-  return control.Environment(
-      physics, task, time_limit=time_limit, **environment_kwargs)
+    """Returns three-link reacher with sparse reward with 5e-2 tol and randomized target."""
+    physics = Physics.from_xml_string(*get_model_and_assets(links=4))
+    task = CustomThreeLinkReacher(target_size=_BIG_TARGET, random=random)
+    environment_kwargs = environment_kwargs or {}
+    return control.Environment(
+        physics, task, time_limit=time_limit, **environment_kwargs)
 
 
 @reacher.SUITE.add('custom')
 def four_hard(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
-  """Returns three-link reacher with sparse reward with 1e-2 tol and randomized target."""
-  physics = Physics.from_xml_string(*get_model_and_assets(links=4))
-  task = CustomThreeLinkReacher(target_size=_SMALL_TARGET, random=random)
-  environment_kwargs = environment_kwargs or {}
-  return control.Environment(
-      physics, task, time_limit=time_limit, **environment_kwargs)
+    """Returns three-link reacher with sparse reward with 1e-2 tol and randomized target."""
+    physics = Physics.from_xml_string(*get_model_and_assets(links=4))
+    task = CustomThreeLinkReacher(target_size=_SMALL_TARGET, random=random)
+    environment_kwargs = environment_kwargs or {}
+    return control.Environment(
+        physics, task, time_limit=time_limit, **environment_kwargs)
 
 
 class Physics(mujoco.Physics):
-  """Physics simulation with additional features for the Reacher domain."""
+    """Physics simulation with additional features for the Reacher domain."""
 
-  def finger_to_target(self):
-    """Returns the vector from target to finger in global coordinates."""
-    return (self.named.data.geom_xpos['target', :2] -
-            self.named.data.geom_xpos['finger', :2])
+    def finger_to_target(self):
+        """Returns the vector from target to finger in global coordinates."""
+        return (self.named.data.geom_xpos['target', :2] -
+                self.named.data.geom_xpos['finger', :2])
 
-  def finger_to_target_dist(self):
-    """Returns the signed distance between the finger and target surface."""
-    return np.linalg.norm(self.finger_to_target())
+    def finger_to_target_dist(self):
+        """Returns the signed distance between the finger and target surface."""
+        return np.linalg.norm(self.finger_to_target())
 
 
 class CustomThreeLinkReacher(reacher.Reacher):
-  """Custom Reacher tasks."""
+    """Custom Reacher tasks."""
 
-  def __init__(self, target_size, random=None):
-    super().__init__(target_size, random)
+    def __init__(self, target_size, random=None):
+        super().__init__(target_size, random)
 
-  def get_observation(self, physics):
-    obs = collections.OrderedDict()
-    obs['position'] = physics.position()
-    obs['to_target'] = physics.finger_to_target()
-    obs['velocity'] = physics.velocity()
-    return obs
+    def get_observation(self, physics):
+        obs = collections.OrderedDict()
+        obs['position'] = physics.position()
+        obs['to_target'] = physics.finger_to_target()
+        obs['velocity'] = physics.velocity()
+        return obs

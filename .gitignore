@@ -2,6 +2,9 @@
 tdmpc2/logs/
 tdmpc2/outputs/
 tdmpc2/wandb/
+logs/
+outputs/
+wandb/
 
 # HPC
 nautilus/*.yaml
@@ -127,3 +130,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# IDE
+.idea/

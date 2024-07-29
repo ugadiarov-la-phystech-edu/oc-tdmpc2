@@ -45,35 +45,37 @@ SHELL ["/bin/bash", "-c"]
 COPY nvidia_icd.json /usr/share/vulkan/icd.d/nvidia_icd.json
 COPY environment.yaml /root
 RUN conda update conda && \
+    conda install python=3.9 -y && \
+    conda install pytorch==2.3.1 torchvision==0.18.1 pytorch-cuda=11.8 -c pytorch -c nvidia -y && \
     conda env update -n base -f /root/environment.yaml && \
     rm /root/environment.yaml && \
     conda clean -ya && \
     pip cache purge
 
 # mujoco 2.1.0
-ENV MUJOCO_GL egl
-ENV LD_LIBRARY_PATH /root/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH}
-RUN mkdir -p /root/.mujoco && \
-    wget https://www.tdmpc2.com/files/mjkey.txt && \
-    wget https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz && \
-    tar -xzf mujoco210-linux-x86_64.tar.gz && \
-    rm mujoco210-linux-x86_64.tar.gz && \
-    mv mujoco210 /root/.mujoco/mujoco210 && \
-    mv mjkey.txt /root/.mujoco/mjkey.txt && \
-    find /root/.mujoco -uid 421709 -exec chown root:root {} \; && \
-    python -c "import mujoco_py"
+#ENV MUJOCO_GL egl
+#ENV LD_LIBRARY_PATH /root/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH}
+#RUN mkdir -p /root/.mujoco && \
+#    wget https://www.tdmpc2.com/files/mjkey.txt && \
+#    wget https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz && \
+#    tar -xzf mujoco210-linux-x86_64.tar.gz && \
+#    rm mujoco210-linux-x86_64.tar.gz && \
+#    mv mujoco210 /root/.mujoco/mujoco210 && \
+#    mv mjkey.txt /root/.mujoco/mjkey.txt && \
+#    find /root/.mujoco -uid 421709 -exec chown root:root {} \; && \
+#    python -c "import mujoco_py"
 
 # gym
-RUN pip install gym==0.21.0
+#RUN pip install gym==0.21.0
 
 # metaworld
-RUN pip install git+https://github.com/Farama-Foundation/Metaworld.git@04be337a12305e393c0caf0cbf5ec7755c7c8feb
+#RUN pip install git+https://github.com/Farama-Foundation/Metaworld.git@04be337a12305e393c0caf0cbf5ec7755c7c8feb
 
 # maniskill2
-ENV MS2_ASSET_DIR /root/data
-RUN pip install mani-skill2==0.4.1 && \
-    cd /root && \
-    python -m mani_skill2.utils.download_asset all -y
+#ENV MS2_ASSET_DIR /root/data
+#RUN pip install mani-skill2==0.4.1 && \
+#    cd /root && \
+#    python -m mani_skill2.utils.download_asset all -y
 
 # myosuite (conflicts with meta-world / mani-skill2)
 # RUN pip install myosuite
