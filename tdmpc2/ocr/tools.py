@@ -349,7 +349,8 @@ class SlotExtractor:
         if batch_slots is not None:
             batch_slots = obs_to_tensor(batch_slots, self._device)
 
-        attns = self._model.visualize(batch_images, batch_slots, with_attns=with_attns, normalize_slots=normalize_slots).detach()
+        attns = self._model.visualize(batch_images, batch_slots, with_attns=with_attns,
+                                      normalize_slots=normalize_slots).detach()
 
         if to_numpy:
             attns = attns.cpu().numpy()
@@ -378,14 +379,15 @@ class Dinosaur(torch.nn.Module):
                                                        hidden_dim=self._input_feature_dim, initial_layer_norm=True))
         ff_mlp = build_two_layer_mlp(input_dim=self._slot_dim, output_dim=self._slot_dim, hidden_dim=4 * self._slot_dim,
                                      initial_layer_norm=True, residual=True)
-        self.perceptual_grouping = SlotAttentionGrouping(feature_dim=self._slot_dim, object_dim=self._slot_dim, ff_mlp=ff_mlp,
+        self.perceptual_grouping = SlotAttentionGrouping(feature_dim=self._slot_dim, object_dim=self._slot_dim,
+                                                         ff_mlp=ff_mlp,
                                                          positional_embedding=pos_embedding, use_projection_bias=False,
                                                          use_implicit_differentiation=False,
                                                          use_empty_slot_for_masked_slots=False)
 
         decoder = partial(build_mlp, features=self._features)
         self.object_decoder = PatchDecoder(object_dim=self._slot_dim, output_dim=self._input_feature_dim,
-                                           num_patches=self._num_patches, decoder=decoder,)
+                                           num_patches=self._num_patches, decoder=decoder, )
 
     def get_slots_dim(self):
         return self._n_slots, self._slot_dim
@@ -464,7 +466,7 @@ def adjusted_rand_index(pred_mask: torch.Tensor, true_mask: torch.Tensor) -> tor
 
 
 def fg_adjusted_rand_index(
-    pred_mask: torch.Tensor, true_mask: torch.Tensor, bg_dim: int = 0
+        pred_mask: torch.Tensor, true_mask: torch.Tensor, bg_dim: int = 0
 ) -> torch.Tensor:
     """Compute adjusted random index using only foreground groups (FG-ARI).
 
@@ -486,7 +488,7 @@ def fg_adjusted_rand_index(
         true_mask_only_fg = true_mask[..., :-1]
     else:
         true_mask_only_fg = torch.cat(
-            (true_mask[..., :bg_dim], true_mask[..., bg_dim + 1 :]), dim=-1
+            (true_mask[..., :bg_dim], true_mask[..., bg_dim + 1:]), dim=-1
         )
 
     return adjusted_rand_index(pred_mask, true_mask_only_fg)
@@ -496,11 +498,11 @@ class ARIMetric:
     """Computes ARI metric."""
 
     def __init__(
-        self,
-        foreground: bool = True,
-        convert_target_one_hot: bool = False,
-        ignore_overlaps: bool = False,
-        background_dim: int = 0
+            self,
+            foreground: bool = True,
+            convert_target_one_hot: bool = False,
+            ignore_overlaps: bool = False,
+            background_dim: int = 0
     ):
         super().__init__()
         self.foreground = foreground
@@ -511,7 +513,7 @@ class ARIMetric:
         self.total = 0
 
     def update(
-        self, prediction: torch.Tensor, target: torch.Tensor, ignore: Optional[torch.Tensor] = None
+            self, prediction: torch.Tensor, target: torch.Tensor, ignore: Optional[torch.Tensor] = None
     ):
         """Update this metric.
 

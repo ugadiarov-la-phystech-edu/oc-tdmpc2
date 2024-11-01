@@ -9,12 +9,12 @@ class TransformerDecoderWithAttention(nn.TransformerDecoder):
     """Modified nn.TransformerDecoder class that returns attention weights over memory."""
 
     def __init__(
-        self,
-        decoder_layer,
-        num_layers,
-        norm=None,
-        return_attention_weights=False,
-        attention_weight_type: Union[int, str] = "mean",
+            self,
+            decoder_layer,
+            num_layers,
+            norm=None,
+            return_attention_weights=False,
+            attention_weight_type: Union[int, str] = "mean",
     ):
         super(TransformerDecoderWithAttention, self).__init__(decoder_layer, num_layers, norm)
 
@@ -70,13 +70,13 @@ class TransformerDecoderWithAttention(nn.TransformerDecoder):
         return hook
 
     def forward(
-        self,
-        tgt: torch.Tensor,
-        memory: torch.Tensor,
-        tgt_mask: Optional[torch.Tensor] = None,
-        memory_mask: Optional[torch.Tensor] = None,
-        tgt_key_padding_mask: Optional[torch.Tensor] = None,
-        memory_key_padding_mask: Optional[torch.Tensor] = None,
+            self,
+            tgt: torch.Tensor,
+            memory: torch.Tensor,
+            tgt_mask: Optional[torch.Tensor] = None,
+            memory_mask: Optional[torch.Tensor] = None,
+            tgt_key_padding_mask: Optional[torch.Tensor] = None,
+            memory_key_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         output = tgt
 

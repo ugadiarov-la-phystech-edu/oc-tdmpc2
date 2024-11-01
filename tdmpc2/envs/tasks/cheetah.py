@@ -22,7 +22,7 @@ def get_model_and_assets():
 def run_backwards(time_limit=cheetah._DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
     """Returns the Run Backwards task."""
     physics = cheetah.Physics.from_xml_string(*get_model_and_assets())
-    task = CustomCheetah(goal='run-backwards', move_speed=cheetah._RUN_SPEED*0.8, random=random)
+    task = CustomCheetah(goal='run-backwards', move_speed=cheetah._RUN_SPEED * 0.8, random=random)
     environment_kwargs = environment_kwargs or {}
     return control.Environment(physics, task, time_limit=time_limit,
                                **environment_kwargs)
@@ -62,7 +62,7 @@ def jump(time_limit=cheetah._DEFAULT_TIME_LIMIT, random=None, environment_kwargs
 def run_front(time_limit=cheetah._DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
     """Returns the Run Front task."""
     physics = cheetah.Physics.from_xml_string(*get_model_and_assets())
-    task = CustomCheetah(goal='run-front', move_speed=cheetah._RUN_SPEED*0.6, random=random)
+    task = CustomCheetah(goal='run-front', move_speed=cheetah._RUN_SPEED * 0.6, random=random)
     environment_kwargs = environment_kwargs or {}
     return control.Environment(physics, task, time_limit=time_limit,
                                **environment_kwargs)
@@ -72,7 +72,7 @@ def run_front(time_limit=cheetah._DEFAULT_TIME_LIMIT, random=None, environment_k
 def run_back(time_limit=cheetah._DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
     """Returns the Run Back task."""
     physics = cheetah.Physics.from_xml_string(*get_model_and_assets())
-    task = CustomCheetah(goal='run-back', move_speed=cheetah._RUN_SPEED*0.6, random=random)
+    task = CustomCheetah(goal='run-back', move_speed=cheetah._RUN_SPEED * 0.6, random=random)
     environment_kwargs = environment_kwargs or {}
     return control.Environment(physics, task, time_limit=time_limit,
                                **environment_kwargs)
@@ -112,7 +112,7 @@ def flip(time_limit=cheetah._DEFAULT_TIME_LIMIT, random=None, environment_kwargs
 def flip_backwards(time_limit=cheetah._DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
     """Returns the Flip Backwards task."""
     physics = Physics.from_xml_string(*get_model_and_assets())
-    task = CustomCheetah(goal='flip-backwards', move_speed=cheetah._RUN_SPEED*0.8, random=random)
+    task = CustomCheetah(goal='flip-backwards', move_speed=cheetah._RUN_SPEED * 0.8, random=random)
     environment_kwargs = environment_kwargs or {}
     return control.Environment(physics, task, time_limit=time_limit,
                                **environment_kwargs)
@@ -128,7 +128,7 @@ class Physics(cheetah.Physics):
 
 class CustomCheetah(cheetah.Cheetah):
     """Custom Cheetah tasks."""
-    
+
     def __init__(self, goal='run-backwards', move_speed=0, random=None):
         super().__init__(random)
         self._goal = goal
@@ -136,32 +136,32 @@ class CustomCheetah(cheetah.Cheetah):
 
     def _run_backwards_reward(self, physics):
         return rewards.tolerance(physics.speed(),
-                            bounds=(-float('inf'), -self._move_speed),
-                            margin=self._move_speed,
-                            value_at_margin=0,
-                            sigmoid='linear')
-       
+                                 bounds=(-float('inf'), -self._move_speed),
+                                 margin=self._move_speed,
+                                 value_at_margin=0,
+                                 sigmoid='linear')
+
     def _stand_one_foot_reward(self, physics, foot):
         """Note: `foot` is the foot that is *not* on the ground."""
         torso_height = physics.named.data.xpos['torso', 'z']
         foot_height = physics.named.data.xpos[foot, 'z']
-        height_reward = rewards.tolerance((torso_height + foot_height)/2,
-                            bounds=(_CHEETAH_JUMP_HEIGHT, float('inf')),
-                            margin=_CHEETAH_JUMP_HEIGHT/2)
+        height_reward = rewards.tolerance((torso_height + foot_height) / 2,
+                                          bounds=(_CHEETAH_JUMP_HEIGHT, float('inf')),
+                                          margin=_CHEETAH_JUMP_HEIGHT / 2)
         horizontal_speed_reward = rewards.tolerance(physics.speed(),
-                            bounds=(-self._move_speed, self._move_speed),
-                            margin=self._move_speed,
-                            value_at_margin=0,
-                            sigmoid='linear')
-        stand_reward = (5*height_reward + horizontal_speed_reward) / 6
+                                                    bounds=(-self._move_speed, self._move_speed),
+                                                    margin=self._move_speed,
+                                                    value_at_margin=0,
+                                                    sigmoid='linear')
+        stand_reward = (5 * height_reward + horizontal_speed_reward) / 6
         return stand_reward
 
     def _stand_front_reward(self, physics):
         return self._stand_one_foot_reward(physics, 'bfoot')
-    
+
     def _stand_back_reward(self, physics):
         return self._stand_one_foot_reward(physics, 'ffoot')
-    
+
     def _jump_reward(self, physics):
         front_reward = self._stand_front_reward(physics)
         back_reward = self._stand_back_reward(physics)
@@ -173,24 +173,24 @@ class CustomCheetah(cheetah.Cheetah):
         torso_height = physics.named.data.xpos['torso', 'z']
         foot_height = physics.named.data.xpos[foot, 'z']
         torso_up = rewards.tolerance(torso_height,
-                            bounds=(_CHEETAH_JUMP_HEIGHT, float('inf')),
-                            margin=_CHEETAH_JUMP_HEIGHT/2)
+                                     bounds=(_CHEETAH_JUMP_HEIGHT, float('inf')),
+                                     margin=_CHEETAH_JUMP_HEIGHT / 2)
         foot_up = rewards.tolerance(foot_height,
-                            bounds=(_CHEETAH_JUMP_HEIGHT, float('inf')),
-                            margin=_CHEETAH_JUMP_HEIGHT/2)
-        up_reward = (3*foot_up + 2*torso_up) / 5
+                                    bounds=(_CHEETAH_JUMP_HEIGHT, float('inf')),
+                                    margin=_CHEETAH_JUMP_HEIGHT / 2)
+        up_reward = (3 * foot_up + 2 * torso_up) / 5
         if self._move_speed == 0:
             return up_reward
         horizontal_speed_reward = rewards.tolerance(physics.speed(),
-                            bounds=(self._move_speed, float('inf')),
-                            margin=self._move_speed,
-                            value_at_margin=0,
-                            sigmoid='linear')
-        return up_reward * (5*horizontal_speed_reward + 1) / 6
+                                                    bounds=(self._move_speed, float('inf')),
+                                                    margin=self._move_speed,
+                                                    value_at_margin=0,
+                                                    sigmoid='linear')
+        return up_reward * (5 * horizontal_speed_reward + 1) / 6
 
     def _run_front_reward(self, physics):
         return self._run_one_foot_reward(physics, 'bfoot')
-    
+
     def _run_back_reward(self, physics):
         return self._run_one_foot_reward(physics, 'ffoot')
 
@@ -198,41 +198,41 @@ class CustomCheetah(cheetah.Cheetah):
         torso_height = physics.named.data.xpos['torso', 'z']
         feet_height = (physics.named.data.xpos['ffoot', 'z'] + physics.named.data.xpos['bfoot', 'z']) / 2
         torso_down = rewards.tolerance(torso_height,
-                            bounds=(-float('inf'), _CHEETAH_LIE_HEIGHT),
-                            margin=_CHEETAH_LIE_HEIGHT,
-                            value_at_margin=0,
-                            sigmoid='linear')
+                                       bounds=(-float('inf'), _CHEETAH_LIE_HEIGHT),
+                                       margin=_CHEETAH_LIE_HEIGHT,
+                                       value_at_margin=0,
+                                       sigmoid='linear')
         feet_down = rewards.tolerance(feet_height,
-                            bounds=(-float('inf'), _CHEETAH_LIE_HEIGHT),
-                            margin=_CHEETAH_LIE_HEIGHT,
-                            value_at_margin=0,
-                            sigmoid='linear')
-        lie_down_reward = (3*torso_down + feet_down) / 4
+                                      bounds=(-float('inf'), _CHEETAH_LIE_HEIGHT),
+                                      margin=_CHEETAH_LIE_HEIGHT,
+                                      value_at_margin=0,
+                                      sigmoid='linear')
+        lie_down_reward = (3 * torso_down + feet_down) / 4
         return lie_down_reward
 
     def _legs_up_reward(self, physics):
         torso_height = physics.named.data.xpos['torso', 'z']
         torso_down = rewards.tolerance(torso_height,
-                            bounds=(-float('inf'), _CHEETAH_LIE_HEIGHT),
-                            margin=_CHEETAH_LIE_HEIGHT/2)
+                                       bounds=(-float('inf'), _CHEETAH_LIE_HEIGHT),
+                                       margin=_CHEETAH_LIE_HEIGHT / 2)
         get_up = self._run_one_foot_reward(physics, 'bfoot')
-        legs_up_reward = (5*torso_down + get_up) / 6
+        legs_up_reward = (5 * torso_down + get_up) / 6
         return legs_up_reward
-    
+
     def _flip_reward(self, physics, forward=True):
         spin_reward = rewards.tolerance(
-                            (1. if forward else -1.) * physics.angmomentum(),
-                            bounds=(_CHEETAH_SPIN_SPEED, float('inf')),
-                            margin=_CHEETAH_SPIN_SPEED,
-                            value_at_margin=0,
-                            sigmoid='linear')
+            (1. if forward else -1.) * physics.angmomentum(),
+            bounds=(_CHEETAH_SPIN_SPEED, float('inf')),
+            margin=_CHEETAH_SPIN_SPEED,
+            value_at_margin=0,
+            sigmoid='linear')
         horizontal_speed_reward = rewards.tolerance(
-                            (1. if forward else -1.) * physics.speed(),
-                            bounds=(self._move_speed, float('inf')),
-                            margin=self._move_speed,
-                            value_at_margin=0,
-                            sigmoid='linear')
-        flip_reward = (2*spin_reward + horizontal_speed_reward) / 3
+            (1. if forward else -1.) * physics.speed(),
+            bounds=(self._move_speed, float('inf')),
+            margin=self._move_speed,
+            value_at_margin=0,
+            sigmoid='linear')
+        flip_reward = (2 * spin_reward + horizontal_speed_reward) / 3
         return flip_reward
 
     def get_reward(self, physics):
@@ -264,5 +264,6 @@ if __name__ == '__main__':
     env = jump()
     obs = env.reset()
     import numpy as np
+
     next_obs, reward, done, info = env.step(np.zeros(6))
     print(reward)

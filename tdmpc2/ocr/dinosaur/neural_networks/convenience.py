@@ -40,13 +40,13 @@ def get_activation_fn(name: str, inplace: bool = True, leaky_relu_slope: Optiona
 
 
 def build_mlp(
-    input_dim: int,
-    output_dim: int,
-    features: List[int],
-    activation_fn: Union[str, Callable] = "relu",
-    final_activation_fn: Optional[Union[str, Callable]] = None,
-    initial_layer_norm: bool = False,
-    residual: bool = False,
+        input_dim: int,
+        output_dim: int,
+        features: List[int],
+        activation_fn: Union[str, Callable] = "relu",
+        final_activation_fn: Optional[Union[str, Callable]] = None,
+        initial_layer_norm: bool = False,
+        residual: bool = False,
 ) -> nn.Sequential:
     layers = []
     current_dim = input_dim
@@ -70,7 +70,7 @@ def build_mlp(
 
 
 def build_two_layer_mlp(
-    input_dim, output_dim, hidden_dim, initial_layer_norm: bool = False, residual: bool = False
+        input_dim, output_dim, hidden_dim, initial_layer_norm: bool = False, residual: bool = False
 ):
     """Build a two layer MLP, with optional initial layer norm.
 
@@ -83,15 +83,15 @@ def build_two_layer_mlp(
 
 
 def build_transformer_encoder(
-    input_dim: int,
-    output_dim: int,
-    n_layers: int,
-    n_heads: int,
-    hidden_dim: Optional[int] = None,
-    dropout: float = 0.0,
-    activation_fn: Union[str, Callable] = "relu",
-    layer_norm_eps: float = 1e-5,
-    use_output_transform: bool = True,
+        input_dim: int,
+        output_dim: int,
+        n_layers: int,
+        n_heads: int,
+        hidden_dim: Optional[int] = None,
+        dropout: float = 0.0,
+        activation_fn: Union[str, Callable] = "relu",
+        layer_norm_eps: float = 1e-5,
+        use_output_transform: bool = True,
 ):
     if hidden_dim is None:
         hidden_dim = 4 * input_dim
@@ -122,16 +122,16 @@ def build_transformer_encoder(
 
 
 def build_transformer_decoder(
-    input_dim: int,
-    output_dim: int,
-    n_layers: int,
-    n_heads: int,
-    hidden_dim: Optional[int] = None,
-    dropout: float = 0.0,
-    activation_fn: Union[str, Callable] = "relu",
-    layer_norm_eps: float = 1e-5,
-    return_attention_weights: bool = False,
-    attention_weight_type: Union[int, str] = -1,
+        input_dim: int,
+        output_dim: int,
+        n_layers: int,
+        n_heads: int,
+        hidden_dim: Optional[int] = None,
+        dropout: float = 0.0,
+        activation_fn: Union[str, Callable] = "relu",
+        layer_norm_eps: float = 1e-5,
+        return_attention_weights: bool = False,
+        attention_weight_type: Union[int, str] = -1,
 ):
     if hidden_dim is None:
         hidden_dim = 4 * input_dim

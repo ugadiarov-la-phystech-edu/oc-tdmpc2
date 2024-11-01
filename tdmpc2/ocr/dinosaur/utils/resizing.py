@@ -12,11 +12,11 @@ class Resize(nn.Module):
     MODES = {"nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"}
 
     def __init__(
-        self,
-        size: Optional[Union[int, Tuple[int, int]]] = None,
-        resize_mode: str = "bilinear",
-        patch_mode: bool = False,
-        channels_last: bool = False,
+            self,
+            size: Optional[Union[int, Tuple[int, int]]] = None,
+            resize_mode: str = "bilinear",
+            patch_mode: bool = False,
+            channels_last: bool = False,
     ):
         super().__init__()
 
@@ -30,7 +30,7 @@ class Resize(nn.Module):
         self.expected_dims = 3 if patch_mode else 4
 
     def forward(
-        self, input: torch.Tensor, size_tensor: Optional[torch.Tensor] = None
+            self, input: torch.Tensor, size_tensor: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """Resize tensor.
 
@@ -97,10 +97,10 @@ class Resize(nn.Module):
 
 
 def resize_patches_to_image(
-    patches: torch.Tensor,
-    size: Optional[int] = None,
-    scale_factor: Optional[float] = None,
-    resize_mode: str = "bilinear",
+        patches: torch.Tensor,
+        size: Optional[int] = None,
+        scale_factor: Optional[float] = None,
+        resize_mode: str = "bilinear",
 ) -> torch.Tensor:
     """Convert and resize a tensor of patches to image shape.
 

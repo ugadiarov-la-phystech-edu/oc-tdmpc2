@@ -23,16 +23,16 @@ class SlotAttention(nn.Module):
     """
 
     def __init__(
-        self,
-        dim: int,
-        feature_dim: int,
-        kvq_dim: Optional[int] = None,
-        n_heads: int = 1,
-        iters: int = 3,
-        eps: float = 1e-8,
-        ff_mlp: Optional[nn.Module] = None,
-        use_projection_bias: bool = False,
-        use_implicit_differentiation: bool = False,
+            self,
+            dim: int,
+            feature_dim: int,
+            kvq_dim: Optional[int] = None,
+            n_heads: int = 1,
+            iters: int = 3,
+            eps: float = 1e-8,
+            ff_mlp: Optional[nn.Module] = None,
+            use_projection_bias: bool = False,
+            use_implicit_differentiation: bool = False,
     ):
         super().__init__()
         self.dim = dim
@@ -49,7 +49,7 @@ class SlotAttention(nn.Module):
         if self.kvq_dim % self.n_heads != 0:
             raise ValueError("Key, value, query dimensions must be divisible by number of heads.")
         self.dims_per_head = self.kvq_dim // self.n_heads
-        self.scale = self.dims_per_head**-0.5
+        self.scale = self.dims_per_head ** -0.5
 
         self.to_q = nn.Linear(dim, self.kvq_dim, bias=use_projection_bias)
         self.to_k = nn.Linear(feature_dim, self.kvq_dim, bias=use_projection_bias)
@@ -96,7 +96,7 @@ class SlotAttention(nn.Module):
         return slots, attn
 
     def forward(
-        self, inputs: torch.Tensor, conditioning: torch.Tensor, masks: Optional[torch.Tensor] = None
+            self, inputs: torch.Tensor, conditioning: torch.Tensor, masks: Optional[torch.Tensor] = None
     ):
         b, n, d = inputs.shape
         slots = conditioning
@@ -118,18 +118,18 @@ class SlotAttentionGrouping(nn.Module):
     """Implementation of SlotAttention for perceptual grouping."""
 
     def __init__(
-        self,
-        feature_dim: int,
-        object_dim: int,
-        kvq_dim: Optional[int] = None,
-        n_heads: int = 1,
-        iters: int = 3,
-        eps: float = 1e-8,
-        ff_mlp: Optional[nn.Module] = None,
-        positional_embedding: Optional[nn.Module] = None,
-        use_projection_bias: bool = False,
-        use_implicit_differentiation: bool = False,
-        use_empty_slot_for_masked_slots: bool = False,
+            self,
+            feature_dim: int,
+            object_dim: int,
+            kvq_dim: Optional[int] = None,
+            n_heads: int = 1,
+            iters: int = 3,
+            eps: float = 1e-8,
+            ff_mlp: Optional[nn.Module] = None,
+            positional_embedding: Optional[nn.Module] = None,
+            use_projection_bias: bool = False,
+            use_implicit_differentiation: bool = False,
+            use_empty_slot_for_masked_slots: bool = False,
     ):
         """Initialize Slot Attention Grouping.
 
@@ -169,7 +169,7 @@ class SlotAttentionGrouping(nn.Module):
         self.positional_embedding = positional_embedding
 
         if use_empty_slot_for_masked_slots:
-            self.empty_slot = nn.Parameter(torch.randn(object_dim) * object_dim**-0.5)
+            self.empty_slot = nn.Parameter(torch.randn(object_dim) * object_dim ** -0.5)
         else:
             self.empty_slot = None
 
@@ -178,10 +178,10 @@ class SlotAttentionGrouping(nn.Module):
         return self._object_dim
 
     def forward(
-        self,
-        feature: ocr_typing.FeatureExtractorOutput,
-        conditioning: ocr_typing.ConditioningOutput,
-        slot_mask: Optional[ocr_typing.EmptyIndicator] = None,
+            self,
+            feature: ocr_typing.FeatureExtractorOutput,
+            conditioning: ocr_typing.ConditioningOutput,
+            slot_mask: Optional[ocr_typing.EmptyIndicator] = None,
     ) -> ocr_typing.PerceptualGroupingOutput:
         """Apply slot attention based perceptual grouping.
 
@@ -230,20 +230,20 @@ class StickBreakingGrouping(nn.Module):
     """
 
     def __init__(
-        self,
-        object_dim: int,
-        feature_dim: int,
-        n_slots: int,
-        kernel_var: float = 1.0,
-        learn_kernel_var: bool = False,
-        max_unexplained: float = 0.0,
-        min_slot_mask: float = 0.0,
-        min_max_mask_value: float = 0.0,
-        early_termination: bool = False,
-        add_unexplained: bool = False,
-        eps: float = 1e-8,
-        detach_features: bool = False,
-        use_input_layernorm: bool = False,
+            self,
+            object_dim: int,
+            feature_dim: int,
+            n_slots: int,
+            kernel_var: float = 1.0,
+            learn_kernel_var: bool = False,
+            max_unexplained: float = 0.0,
+            min_slot_mask: float = 0.0,
+            min_max_mask_value: float = 0.0,
+            early_termination: bool = False,
+            add_unexplained: bool = False,
+            eps: float = 1e-8,
+            detach_features: bool = False,
+            use_input_layernorm: bool = False,
     ):
         """Initialize stick-breaking-based perceptual grouping.
 
@@ -308,7 +308,7 @@ class StickBreakingGrouping(nn.Module):
         torch.nn.init.zeros_(self.out_proj.bias)
 
     def forward(
-        self, features: ocr_typing.FeatureExtractorOutput
+            self, features: ocr_typing.FeatureExtractorOutput
     ) -> ocr_typing.PerceptualGroupingOutput:
         """Apply stick-breaking-based perceptual grouping to input features.
 
@@ -402,10 +402,10 @@ class KMeansGrouping(nn.Module):
     """Simple K-means clustering based grouping."""
 
     def __init__(
-        self,
-        n_slots: int,
-        use_l2_normalization: bool = True,
-        clustering_kwargs: Optional[Dict[str, Any]] = None,
+            self,
+            n_slots: int,
+            use_l2_normalization: bool = True,
+            clustering_kwargs: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
         self._object_dim = None
@@ -420,7 +420,7 @@ class KMeansGrouping(nn.Module):
         return self._object_dim
 
     def forward(
-        self, feature: ocr_typing.FeatureExtractorOutput
+            self, feature: ocr_typing.FeatureExtractorOutput
     ) -> ocr_typing.PerceptualGroupingOutput:
         feature = feature.features
         if self._object_dim is None:

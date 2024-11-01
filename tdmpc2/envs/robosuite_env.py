@@ -12,7 +12,6 @@ from envs.wrappers.time_limit import TimeLimit
 ROBOSUITE_TASKS = {
     'lift': dict(
         env='Lift',
-        horizon=125,
         initialization_noise_magnitude=0.5,
         use_random_object_position=False,
     ),
@@ -20,7 +19,8 @@ ROBOSUITE_TASKS = {
 
 
 class FixedPositionSampler(ObjectPositionSampler):
-    def __init__(self, name, task, mujoco_objects=None, ensure_object_boundary_in_range=True, ensure_valid_placement=True,
+    def __init__(self, name, task, mujoco_objects=None, ensure_object_boundary_in_range=True,
+                 ensure_valid_placement=True,
                  reference_pos=(0, 0, 0), z_offset=0.0):
         # Setup attributes
         super().__init__(name, mujoco_objects, ensure_object_boundary_in_range, ensure_valid_placement, reference_pos,
@@ -32,7 +32,7 @@ class FixedPositionSampler(ObjectPositionSampler):
             self.placement = {'cubeA': ((0.05, -0.15, 0.8300000000000001),
                                         np.array([-0.84408914, 0., 0., 0.53620288], dtype=np.float32)),
                               'cubeB': ((-0.05, 0.2, 0.8350000000000001),
-                                        np.array([-0.85059733, 0., 0., 0.52581763], dtype=np.float32)),}
+                                        np.array([-0.85059733, 0., 0., 0.52581763], dtype=np.float32)), }
         else:
             self.placement = {
                 'cube': ((0.12, 0.12, 0.8350000000000001), np.array([-0.5, 0., 0., 0.8], dtype=np.float32))}
@@ -59,7 +59,7 @@ class RobosuiteEnv(gym.Env):
         self.cfg = cfg
         task_cfg = ROBOSUITE_TASKS[cfg.task]
         self._task = task_cfg['env']
-        self._horizon = task_cfg['horizon']
+        self._horizon = cfg['time_limit']
         self._initialization_noise_magnitude = task_cfg['initialization_noise_magnitude']
         self._use_random_object_position = task_cfg['use_random_object_position']
         self._seed = cfg['seed']
@@ -140,8 +140,10 @@ class RobosuiteEnv(gym.Env):
         self.action_space = gym.spaces.Box(low, high, seed=self._seed)
 
     def _process_observation(self, observation):
-        observation = np.flipud(observation[self._image_key_name])[self._crop[0][0]:self._crop[0][1], self._crop[1][0]:self._crop[1][1]]
-        self._last_frame = cv2.resize(observation, dsize=(self.cfg.obs_size, self.cfg.obs_size), interpolation=cv2.INTER_CUBIC)
+        observation = np.flipud(observation[self._image_key_name])[self._crop[0][0]:self._crop[0][1],
+                      self._crop[1][0]:self._crop[1][1]]
+        self._last_frame = cv2.resize(observation, dsize=(self.cfg.obs_size, self.cfg.obs_size),
+                                      interpolation=cv2.INTER_CUBIC)
         return self._last_frame.copy()
 
     def render(self, *args, **kwargs):
@@ -163,6 +165,6 @@ def make_env(cfg):
         raise ValueError('Unknown task:', cfg.task)
     assert cfg.obs in ('rgb', 'slots'), 'This task supports only image-based and slot-based observations.'
     env = RobosuiteEnv(cfg)
-    env = TimeLimit(env, max_episode_steps=ROBOSUITE_TASKS[cfg.task]['horizon'])
+    env = TimeLimit(env, max_episode_steps=cfg['time_limit'])
     env.max_episode_steps = env._max_episode_steps
     return env

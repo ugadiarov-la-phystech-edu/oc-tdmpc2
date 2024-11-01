@@ -33,7 +33,7 @@ class ImageFeatureExtractor(FeatureExtractor):
 
     @abc.abstractmethod
     def forward_images(
-        self, images: typing.ImageData
+            self, images: typing.ImageData
     ) -> Union[
         Tuple[typing.ImageFeatures, typing.Positions],
         Tuple[typing.ImageFeatures, typing.Positions, Dict],
@@ -90,7 +90,7 @@ class ImageFeatureExtractor(FeatureExtractor):
 
 
 def cnn_compute_positions_and_flatten(
-    features: typing.CNNImageFeatures,
+        features: typing.CNNImageFeatures,
 ) -> Tuple[typing.ImageFeatures, typing.Positions]:
     """Flatten CNN features to remove spatial dims and return them with correspoding positions."""
     spatial_dims = features.shape[2:]
@@ -103,14 +103,14 @@ def cnn_compute_positions_and_flatten(
 
 
 def transformer_compute_positions(
-    features: typing.TransformerImageFeatures,
+        features: typing.TransformerImageFeatures,
 ) -> typing.Positions:
     """Compute positions for Transformer features."""
     n_tokens = features.shape[1]
     image_size = math.sqrt(n_tokens)
     image_size_int = int(image_size)
     assert (
-        image_size_int == image_size
+            image_size_int == image_size
     ), "Position computation for Transformers requires square image"
 
     spatial_dims = (image_size_int, image_size_int)

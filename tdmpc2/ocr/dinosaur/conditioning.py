@@ -12,13 +12,13 @@ class RandomConditioning(nn.Module):
     """Random conditioning with potentially learnt mean and stddev."""
 
     def __init__(
-        self,
-        object_dim: int,
-        n_slots: int,
-        learn_mean: bool = True,
-        learn_std: bool = True,
-        mean_init: Callable[[torch.Tensor], None] = torch.nn.init.xavier_uniform_,
-        logsigma_init: Callable[[torch.Tensor], None] = nn.init.xavier_uniform_,
+            self,
+            object_dim: int,
+            n_slots: int,
+            learn_mean: bool = True,
+            learn_std: bool = True,
+            mean_init: Callable[[torch.Tensor], None] = torch.nn.init.xavier_uniform_,
+            logsigma_init: Callable[[torch.Tensor], None] = nn.init.xavier_uniform_,
     ):
         super().__init__()
         self.n_slots = n_slots
@@ -48,10 +48,10 @@ class LearntConditioning(nn.Module):
     """Conditioning with a learnt set of slot initializations, similar to DETR."""
 
     def __init__(
-        self,
-        object_dim: int,
-        n_slots: int,
-        slot_init: Optional[Callable[[torch.Tensor], None]] = None,
+            self,
+            object_dim: int,
+            n_slots: int,
+            slot_init: Optional[Callable[[torch.Tensor], None]] = None,
     ):
         """Initialize LearntConditioning.
 
@@ -88,13 +88,13 @@ class RandomConditioningWithQMCSampling(RandomConditioning):
     """Random gaussian conditioning using Quasi-Monte Carlo (QMC) samples."""
 
     def __init__(
-        self,
-        object_dim: int,
-        n_slots: int,
-        learn_mean: bool = True,
-        learn_std: bool = True,
-        mean_init: Callable[[torch.Tensor], None] = torch.nn.init.xavier_uniform_,
-        logsigma_init: Callable[[torch.Tensor], None] = torch.nn.init.xavier_uniform_,
+            self,
+            object_dim: int,
+            n_slots: int,
+            learn_mean: bool = True,
+            learn_std: bool = True,
+            mean_init: Callable[[torch.Tensor], None] = torch.nn.init.xavier_uniform_,
+            logsigma_init: Callable[[torch.Tensor], None] = torch.nn.init.xavier_uniform_,
     ):
         """Initialize RandomConditioningWithQMCSampling.
 
@@ -150,11 +150,11 @@ class SlotwiseLearntConditioning(nn.Module):
     """
 
     def __init__(
-        self,
-        object_dim: int,
-        n_slots: int,
-        mean_init: Callable[[torch.Tensor], None] = torch.nn.init.normal_,
-        logsigma_init: Callable[[torch.Tensor], None] = torch.nn.init.xavier_uniform_,
+            self,
+            object_dim: int,
+            n_slots: int,
+            mean_init: Callable[[torch.Tensor], None] = torch.nn.init.normal_,
+            logsigma_init: Callable[[torch.Tensor], None] = torch.nn.init.xavier_uniform_,
     ):
         """Initialize SlotwiseLearntConditioning.
 

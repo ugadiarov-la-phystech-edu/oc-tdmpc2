@@ -79,6 +79,6 @@ def make_env(cfg):
     # Unwrap TimeLimit wrapper
     env = env.env
     env = ManiSkillWrapper(env, cfg)
-    env = TimeLimit(env, max_episode_steps=100)
+    env = TimeLimit(env, max_episode_steps=cfg['time_limit'])
     env.max_episode_steps = env._max_episode_steps
     return env

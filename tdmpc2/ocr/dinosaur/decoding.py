@@ -108,10 +108,10 @@ def get_slotattention_decoder_backbone(object_dim: int, output_dim: int = 4):
 
 
 def get_savi_decoder_backbone(
-    object_dim: int,
-    output_dim: int = 4,
-    larger_input_arch: bool = False,
-    channel_multiplier: float = 1,
+        object_dim: int,
+        output_dim: int = 4,
+        larger_input_arch: bool = False,
+        channel_multiplier: float = 1,
 ):
     """Get CNN decoder backbone form the slot attention for video paper."""
     channels = int(64 * channel_multiplier)
@@ -186,14 +186,14 @@ class StyleGANv2Decoder(nn.Module):
     """CNN decoder as used in StyleGANv2 and GIRAFFE."""
 
     def __init__(
-        self,
-        object_feature_dim: int,
-        output_dim: int = 4,
-        min_features=32,
-        input_size: int = 8,
-        output_size: int = 128,
-        activation_fn: str = "leaky_relu",
-        leaky_relu_slope: float = 0.2,
+            self,
+            object_feature_dim: int,
+            output_dim: int = 4,
+            min_features=32,
+            input_size: int = 8,
+            output_size: int = 128,
+            activation_fn: str = "leaky_relu",
+            leaky_relu_slope: float = 0.2,
     ):
         super().__init__()
         input_size_log2 = math.log2(input_size)
@@ -247,10 +247,10 @@ class SlotAttentionDecoder(nn.Module):
     """Decoder used in the original slot attention paper."""
 
     def __init__(
-        self,
-        decoder: nn.Module,
-        final_activation: Union[str, Callable] = "identity",
-        positional_embedding: Optional[nn.Module] = None,
+            self,
+            decoder: nn.Module,
+            final_activation: Union[str, Callable] = "identity",
+            positional_embedding: Optional[nn.Module] = None,
     ):
         super().__init__()
         self.initial_conv_size = (8, 8)
@@ -293,10 +293,10 @@ class SlotAttentionAmodalDecoder(nn.Module):
     """Decoder used in the original slot attention paper."""
 
     def __init__(
-        self,
-        decoder: nn.Module,
-        final_activation: Union[str, Callable] = "identity",
-        positional_embedding: Optional[nn.Module] = None,
+            self,
+            decoder: nn.Module,
+            final_activation: Union[str, Callable] = "identity",
+            positional_embedding: Optional[nn.Module] = None,
     ):
         super().__init__()
         self.initial_conv_size = (8, 8)
@@ -360,9 +360,9 @@ class SlotAttentionOpticalFlowDecoder(nn.Module):
     # This is something for a later time though.
 
     def __init__(
-        self,
-        decoder: nn.Module,
-        positional_embedding: Optional[nn.Module] = None,
+            self,
+            decoder: nn.Module,
+            positional_embedding: Optional[nn.Module] = None,
     ):
         super().__init__()
         self.initial_conv_size = (8, 8)
@@ -416,14 +416,14 @@ class PatchDecoder(nn.Module):
     """
 
     def __init__(
-        self,
-        object_dim: int,
-        output_dim: int,
-        num_patches: int,
-        decoder: Callable[[int, int], nn.Module],
-        decoder_input_dim: Optional[int] = None,
-        upsample_target: Optional[float] = None,
-        resize_mode: str = "bilinear",
+            self,
+            object_dim: int,
+            output_dim: int,
+            num_patches: int,
+            decoder: Callable[[int, int], nn.Module],
+            decoder_input_dim: Optional[int] = None,
+            upsample_target: Optional[float] = None,
+            resize_mode: str = "bilinear",
     ):
         super().__init__()
         self.output_dim = output_dim
@@ -443,10 +443,10 @@ class PatchDecoder(nn.Module):
         self.pos_embed = nn.Parameter(torch.randn(1, num_patches, decoder_input_dim) * 0.02)
 
     def forward(
-        self,
-        object_features: torch.Tensor,
-        target: Optional[torch.Tensor] = None,
-        image: Optional[torch.Tensor] = None,
+            self,
+            object_features: torch.Tensor,
+            target: Optional[torch.Tensor] = None,
+            image: Optional[torch.Tensor] = None,
     ):
         assert object_features.dim() >= 3  # Image or video data.
         if self.upsample_target is not None and target is not None:
@@ -514,21 +514,21 @@ class AutoregressivePatchDecoder(nn.Module):
     """
 
     def __init__(
-        self,
-        object_dim: int,
-        output_dim: int,
-        num_patches: int,
-        decoder: Callable[[int, int], nn.Module],
-        decoder_dim: Optional[int] = None,
-        decoder_cond_dim: Optional[int] = None,
-        upsample_target: Optional[float] = None,
-        resize_mode: str = "bilinear",
-        use_decoder_masks: bool = False,
-        use_bos_token: bool = True,
-        use_input_transform: bool = False,
-        use_input_norm: bool = False,
-        use_output_transform: bool = False,
-        use_positional_embedding: bool = False,
+            self,
+            object_dim: int,
+            output_dim: int,
+            num_patches: int,
+            decoder: Callable[[int, int], nn.Module],
+            decoder_dim: Optional[int] = None,
+            decoder_cond_dim: Optional[int] = None,
+            upsample_target: Optional[float] = None,
+            resize_mode: str = "bilinear",
+            use_decoder_masks: bool = False,
+            use_bos_token: bool = True,
+            use_input_transform: bool = False,
+            use_input_norm: bool = False,
+            use_output_transform: bool = False,
+            use_positional_embedding: bool = False,
     ):
         super().__init__()
         self.output_dim = output_dim
@@ -542,7 +542,7 @@ class AutoregressivePatchDecoder(nn.Module):
 
         self.decoder = decoder(decoder_dim, decoder_dim)
         if use_bos_token:
-            self.bos_token = nn.Parameter(torch.randn(1, 1, output_dim) * output_dim**-0.5)
+            self.bos_token = nn.Parameter(torch.randn(1, 1, output_dim) * output_dim ** -0.5)
         else:
             self.bos_token = None
         if decoder_cond_dim is not None:
@@ -575,7 +575,7 @@ class AutoregressivePatchDecoder(nn.Module):
 
         if use_positional_embedding:
             self.pos_embed = nn.Parameter(
-                torch.randn(1, num_patches, decoder_dim) * decoder_dim**-0.5
+                torch.randn(1, num_patches, decoder_dim) * decoder_dim ** -0.5
             )
         else:
             self.pos_embed = None
@@ -584,12 +584,12 @@ class AutoregressivePatchDecoder(nn.Module):
         self.register_buffer("mask", mask)
 
     def forward(
-        self,
-        object_features: torch.Tensor,
-        masks: torch.Tensor,
-        target: torch.Tensor,
-        image: Optional[torch.Tensor] = None,
-        empty_objects: Optional[torch.Tensor] = None,
+            self,
+            object_features: torch.Tensor,
+            masks: torch.Tensor,
+            target: torch.Tensor,
+            image: Optional[torch.Tensor] = None,
+            empty_objects: Optional[torch.Tensor] = None,
     ) -> PatchReconstructionOutput:
         assert object_features.dim() >= 3  # Image or video data.
         if self.upsample_target is not None and target is not None:
@@ -659,13 +659,13 @@ class DensityPredictingSlotAttentionDecoder(nn.Module):
     """Decoder predicting color and densities along a ray into the scene."""
 
     def __init__(
-        self,
-        object_dim: int,
-        decoder: nn.Module,
-        depth_positions: int,
-        white_background: bool = False,
-        normalize_densities_along_slots: bool = False,
-        initial_alpha: Optional[float] = None,
+            self,
+            object_dim: int,
+            decoder: nn.Module,
+            depth_positions: int,
+            white_background: bool = False,
+            normalize_densities_along_slots: bool = False,
+            initial_alpha: Optional[float] = None,
     ):
         super().__init__()
         self.initial_conv_size = (8, 8)
@@ -809,10 +809,10 @@ class DensityPredictingSlotAttentionDecoder(nn.Module):
 
 
 def volume_rendering(
-    densities: torch.Tensor,
-    colors: torch.Tensor,
-    distances: Union[float, torch.Tensor] = None,
-    background: torch.Tensor = None,
+        densities: torch.Tensor,
+        colors: torch.Tensor,
+        distances: Union[float, torch.Tensor] = None,
+        background: torch.Tensor = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Volume render along camera rays (also known as alpha compositing).
 
@@ -868,9 +868,9 @@ class DVAEDecoder(nn.Module):
     """VQ Decoder used in the original SLATE paper."""
 
     def __init__(
-        self,
-        decoder: nn.Module,
-        patch_size: int = 4,
+            self,
+            decoder: nn.Module,
+            patch_size: int = 4,
     ):
         super().__init__()
         self.initial_conv_size = (patch_size, patch_size)

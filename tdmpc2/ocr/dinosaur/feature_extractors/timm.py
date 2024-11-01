@@ -186,14 +186,14 @@ class TimmFeatureExtractor(ImageFeatureExtractor):
     """
 
     def __init__(
-        self,
-        model_name: str,
-        feature_level: Optional[Union[int, str, List[Union[int, str]]]] = None,
-        aux_features: Optional[Union[int, str, List[Union[int, str]]]] = None,
-        pretrained: bool = False,
-        freeze: bool = False,
-        n_blocks_to_unfreeze: int = 0,
-        unfreeze_attention: bool = False,
+            self,
+            model_name: str,
+            feature_level: Optional[Union[int, str, List[Union[int, str]]]] = None,
+            aux_features: Optional[Union[int, str, List[Union[int, str]]]] = None,
+            pretrained: bool = False,
+            freeze: bool = False,
+            n_blocks_to_unfreeze: int = 0,
+            unfreeze_attention: bool = False,
     ):
         super().__init__()
 
@@ -282,7 +282,7 @@ class TimmFeatureExtractor(ImageFeatureExtractor):
                 raise NotImplementedError(
                     "`unfreeze_n_blocks` option only implemented for ViT models"
                 )
-            self.model.blocks[-self.n_blocks_to_unfreeze :].requires_grad_(True)
+            self.model.blocks[-self.n_blocks_to_unfreeze:].requires_grad_(True)
             if self.model.norm is not None:
                 self.model.norm.requires_grad_(True)
 
@@ -322,8 +322,8 @@ class TimmFeatureExtractor(ImageFeatureExtractor):
                 features = torch.cat(features, dim=-1)
 
             if len(self.aux_features) > 0:
-                aux_hooks = self._feature_hooks[len(self.feature_levels) :]
-                aux_features = hook_features[len(self.feature_levels) :]
+                aux_hooks = self._feature_hooks[len(self.feature_levels):]
+                aux_features = hook_features[len(self.feature_levels):]
                 aux_features = {hook.name: feat for hook, feat in zip(aux_hooks, aux_features)}
             else:
                 aux_features = None
@@ -385,11 +385,11 @@ def _add_moco_positional_embedding(model, temperature=10000.0):
     grid_h = torch.arange(h, dtype=torch.float32)
     grid_w, grid_h = torch.meshgrid(grid_w, grid_h)
     assert (
-        model.embed_dim % 4 == 0
+            model.embed_dim % 4 == 0
     ), "Embed dimension must be divisible by 4 for 2D sin-cos position embedding"
     pos_dim = model.embed_dim // 4
     omega = torch.arange(pos_dim, dtype=torch.float32) / pos_dim
-    omega = 1.0 / (temperature**omega)
+    omega = 1.0 / (temperature ** omega)
     out_w = torch.einsum("m,d->md", [grid_w.flatten(), omega])
     out_h = torch.einsum("m,d->md", [grid_h.flatten(), omega])
     pos_emb = torch.cat(
@@ -410,10 +410,10 @@ def _moco_checkpoint_filter_fn(state_dict, model, linear_name):
     for k in list(state_dict.keys()):
         # retain only base_encoder up to before the embedding layer
         if k.startswith("module.base_encoder") and not k.startswith(
-            f"module.base_encoder.{linear_name}"
+                f"module.base_encoder.{linear_name}"
         ):
             # remove prefix
-            state_dict[k[len("module.base_encoder.") :]] = state_dict[k]
+            state_dict[k[len("module.base_encoder."):]] = state_dict[k]
         # delete renamed or unused k
         del state_dict[k]
 
@@ -501,7 +501,7 @@ def _msn_vit_checkpoint_filter_fn(state_dict, model):
     for k in list(state_dict.keys()):
         if not k.startswith("module.fc."):
             # remove prefix
-            state_dict[k[len("module.") :]] = state_dict[k]
+            state_dict[k[len("module."):]] = state_dict[k]
         # delete renamed or unused k
         del state_dict[k]
 
@@ -569,7 +569,6 @@ def vit_base_patch16_224_msn(pretrained=False, **kwargs):
 
 @timm.models.registry.register_model
 def vit_base_patch16_224_mae(pretrained=False, **kwargs):
-
     kwargs["pretrained_cfg"] = vision_transformer._cfg(
         url="https://dl.fbaipublicfiles.com/mae/pretrain/mae_pretrain_vit_base.pth"
     )

@@ -10,7 +10,7 @@ class SoftPositionEmbed(nn.Module):
     """
 
     def __init__(
-        self, n_spatial_dims: int, feature_dim: int, cnn_channel_order=False, savi_style=False
+            self, n_spatial_dims: int, feature_dim: int, cnn_channel_order=False, savi_style=False
     ):
         """__init__.
 
