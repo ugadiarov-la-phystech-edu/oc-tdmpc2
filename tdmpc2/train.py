@@ -1,10 +1,12 @@
 import os
+import isaacgym
 
 os.environ['MUJOCO_GL'] = 'egl'
 os.environ['LAZY_LEGACY_OP'] = '0'
 import warnings
 
 warnings.filterwarnings('ignore')
+from envs import make_env
 import torch
 
 import hydra
@@ -13,7 +15,6 @@ from termcolor import colored
 from common.parser import parse_cfg
 from common.seed import set_seed
 from common.buffer import Buffer
-from envs import make_env
 from tdmpc2 import TDMPC2
 from trainer.offline_trainer import OfflineTrainer
 from trainer.online_trainer import OnlineTrainer

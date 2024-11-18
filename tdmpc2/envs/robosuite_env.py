@@ -163,7 +163,7 @@ def make_env(cfg):
     """
     if cfg.task not in ROBOSUITE_TASKS:
         raise ValueError('Unknown task:', cfg.task)
-    assert cfg.obs in ('rgb', 'slots'), 'This task supports only image-based and slot-based observations.'
+    assert cfg.obs in ('rgb', 'slots'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
     env = RobosuiteEnv(cfg)
     env = TimeLimit(env, max_episode_steps=cfg['time_limit'])
     env.max_episode_steps = env._max_episode_steps
