@@ -283,13 +283,17 @@ def conv(in_shape, num_channels, act=None):
     Basic convolutional encoder for TD-MPC2 with raw image observations.
     4 layers of convolution with ReLU activations, followed by a linear layer.
     """
-    assert in_shape[-1] == 64  # assumes rgb observations to be 64x64
+    n_additional_layers = max(0, torch.round(torch.log2(torch.as_tensor(in_shape[-1] / 64))).to(torch.int32).item())
     layers = [
         ShiftAug(), PixelPreprocess(),
         nn.Conv2d(in_shape[0], num_channels, 7, stride=2), nn.ReLU(inplace=True),
         nn.Conv2d(num_channels, num_channels, 5, stride=2), nn.ReLU(inplace=True),
         nn.Conv2d(num_channels, num_channels, 3, stride=2), nn.ReLU(inplace=True),
-        nn.Conv2d(num_channels, num_channels, 3, stride=1), nn.Flatten()]
+    ]
+    for _ in range(n_additional_layers):
+        layers.extend([nn.Conv2d(num_channels, num_channels, 3, stride=2), nn.ReLU(inplace=True)])
+
+    layers.extend([nn.Conv2d(num_channels, num_channels, 3, stride=1), nn.Flatten()])
     if act:
         layers.append(act)
     return nn.Sequential(*layers)

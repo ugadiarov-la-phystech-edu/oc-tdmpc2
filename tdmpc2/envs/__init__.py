@@ -91,7 +91,7 @@ def make_env(cfg):
 
     obs_type = cfg.get('obs', 'state')
     if obs_type == 'rgb':
-        env = PixelWrapper(cfg, env)
+        env = PixelWrapper(cfg, env, num_frames=cfg.num_frames, render_size=cfg.obs_size)
     elif obs_type == 'slots':
         dinosaur = Dinosaur(cfg.dino_model_name, cfg.n_slots, cfg.slot_dim, cfg.input_feature_dim, cfg.num_patches,
                             cfg.features)

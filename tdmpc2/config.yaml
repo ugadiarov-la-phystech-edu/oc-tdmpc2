@@ -6,6 +6,7 @@ task: dog-run
 obs: rgb
 obs_size: 64
 time_limit: 125
+num_frames: 3
 
 # evaluation
 checkpoint: ???
