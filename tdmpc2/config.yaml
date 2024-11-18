@@ -77,6 +77,8 @@ save_csv: true
 save_video: true
 save_agent: true
 seed: 1
+save_every: 10000
+save_checkpoint_wandb: false
 
 # slot extractor
 dino_model_name: vit_base_patch16_224_dino

@@ -109,6 +109,7 @@ class Logger:
         self._model_dir = make_dir(self._log_dir / "models")
         self._save_csv = cfg.save_csv
         self._save_agent = cfg.save_agent
+        self._save_checkpoint_wandb = cfg.save_checkpoint_wandb
         self._group = cfg_to_group(cfg)
         self._seed = cfg.seed
         self._eval = []
@@ -152,11 +153,11 @@ class Logger:
     def model_dir(self):
         return self._model_dir
 
-    def save_agent(self, agent=None, identifier='final'):
+    def save_agent(self, agent=None, statistics={}, identifier='final'):
         if self._save_agent and agent:
             fp = self._model_dir / f'{str(identifier)}.pt'
-            agent.save(fp)
-            if self._wandb:
+            agent.save(statistics, fp)
+            if self._wandb and self._save_checkpoint_wandb:
                 artifact = self._wandb.Artifact(
                     self._group + '-' + str(self._seed) + '-' + str(identifier),
                     type='model',

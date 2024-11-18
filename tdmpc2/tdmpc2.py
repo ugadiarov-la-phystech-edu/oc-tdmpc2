@@ -52,14 +52,17 @@ class TDMPC2:
         frac = episode_length / self.cfg.discount_denom
         return min(max((frac - 1) / (frac), self.cfg.discount_min), self.cfg.discount_max)
 
-    def save(self, fp):
+    def save(self, statistics, fp):
         """
         Save state dict of the agent to filepath.
 
         Args:
+            statistics (dict): Statistics (step, metrics, etc.)
             fp (str): Filepath to save state dict to.
         """
-        torch.save({"model": self.model.state_dict()}, fp)
+        checkpoint = {"model": self.model.state_dict()}
+        checkpoint.update(statistics)
+        torch.save(checkpoint, fp)
 
     def load(self, fp):
         """
