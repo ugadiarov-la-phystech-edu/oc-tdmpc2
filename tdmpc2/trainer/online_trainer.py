@@ -37,6 +37,7 @@ class OnlineTrainer(Trainer):
                 self.logger.video.init(self.env, enabled=(i == 0))
             start_time = time()
             while not done:
+                previous_actions = None
                 if self.cfg.obs == 'ddlp':
                     previous_actions = torch.from_numpy(self.env.get_actions()).to(obs['fg'].device)
 

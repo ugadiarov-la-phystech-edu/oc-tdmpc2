@@ -378,10 +378,10 @@ class DDLPWorldModel(nn.Module):
         self._encoder = layers.enc(cfg)
         self._dynamics = nn.Identity()
         self._reward = EITCritic(self.cfg, self.ddlp_model.get_dlp_features_dim(), self.ddlp_model.action_dim,
-                                 n_critics=1)
+                                 n_critics=1, out_dim=max(cfg.num_bins, 1))
         self._pi = EITActor(self.cfg, self.ddlp_model.get_dlp_features_dim(), self.ddlp_model.action_dim)
         self._Qs = EITCritic(self.cfg, self.ddlp_model.get_dlp_features_dim(), self.ddlp_model.action_dim,
-                                 n_critics=cfg.num_q)
+                                 n_critics=cfg.num_q, out_dim=max(cfg.num_bins, 1))
         self.apply(init.weight_init)
         init.zero_([self._reward.q_networks[0].output_mlp[-1].weight] + [q.output_mlp[-1].weight for q in self._Qs.q_networks])
         self._target_Qs = deepcopy(self._Qs).requires_grad_(False)

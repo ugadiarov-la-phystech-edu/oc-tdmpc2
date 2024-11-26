@@ -207,10 +207,11 @@ class EITActor(nn.Module):
 
 class EITCriticNetwork(nn.Module):
     def __init__(self, particle_fdim, action_dim, embed_dim=64, h_dim=128, n_head=1, dropout=0.0, masking=False,
-                 action_particle=True):
+                 action_particle=True, out_dim=1):
         super().__init__()
         self.masking = masking
         self.action_particle = action_particle
+        self.out_dim = out_dim
         self.action_projection = nn.Sequential(nn.Linear(action_dim, h_dim),
                                                nn.ReLU(True),
                                                nn.Linear(h_dim, embed_dim))
@@ -235,7 +236,7 @@ class EITCriticNetwork(nn.Module):
                                         nn.ReLU(True),
                                         nn.Linear(h_dim, h_dim),
                                         nn.ReLU(True),
-                                        nn.Linear(h_dim, 1))
+                                        nn.Linear(h_dim, self.out_dim))
 
         # special particle
         self.out_particle = nn.Parameter(0.02 * torch.randn(1, 1, embed_dim))
@@ -296,7 +297,7 @@ class EITCriticNetwork(nn.Module):
 
 
 class EITCritic(nn.Module):
-    def __init__(self, cfg, particle_fdim, action_dim, n_critics,):
+    def __init__(self, cfg, particle_fdim, action_dim, n_critics, out_dim):
         super().__init__()
         embed_dim = cfg.eit_embed_dim
         h_dim = cfg.eit_h_dim
@@ -309,7 +310,7 @@ class EITCritic(nn.Module):
         self.q_networks = []
         for idx in range(n_critics):
             q_net = EITCriticNetwork(particle_fdim, action_dim, embed_dim, h_dim, n_head, dropout, masking,
-                                     action_particle)
+                                     action_particle, out_dim)
             self.add_module(f"qf{idx}", q_net)
             self.q_networks.append(q_net)
 
@@ -339,7 +340,7 @@ if __name__ == '__main__':
     act_dim = 3
     n_particles = 4
 
-    critic = EITCritic(config, particle_features_dim, act_dim)
+    critic = EITCritic(config, particle_features_dim, act_dim, n_critics=1, out_dim=1)
     observations = torch.zeros(1, n_particles, particle_features_dim, dtype=torch.float32)
     act = torch.zeros(1, act_dim, dtype=torch.float32)
     critic_output = critic(observations, act)
