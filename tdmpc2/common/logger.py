@@ -129,7 +129,7 @@ class Logger:
         import wandb
 
         config_dict = OmegaConf.to_container(cfg, resolve=True)
-        slurm_job_id_env_key = 'SLUM_JOB_ID'
+        slurm_job_id_env_key = 'SLURM_JOB_ID'
         if slurm_job_id_env_key in os.environ:
             config_dict[slurm_job_id_env_key] = os.environ[slurm_job_id_env_key]
 
