@@ -1,10 +1,11 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tensordict import set_lazy_legacy, TensorDict
 
 from common import math
 from common.scale import RunningScale
-from common.world_model import WorldModel, OCWorldModel
+from common.world_model import WorldModel, OCWorldModel, DDLPWorldModel
 
 
 class TDMPC2:
@@ -14,11 +15,13 @@ class TDMPC2:
     and supports both state and pixel observations.
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, ddlp_model=None):
         self.cfg = cfg
         self.device = torch.device('cuda')
         if self.cfg.obs == 'slots':
             self.model = OCWorldModel(cfg).to(self.device)
+        elif self.cfg.obs == 'ddlp':
+            self.model = DDLPWorldModel(cfg, ddlp_model=ddlp_model).to(self.device)
         else:
             self.model = WorldModel(cfg).to(self.device)
 
@@ -75,7 +78,7 @@ class TDMPC2:
         self.model.load_state_dict(state_dict["model"])
 
     @torch.no_grad()
-    def act(self, obs, t0=False, eval_mode=False, task=None):
+    def act(self, obs, t0=False, eval_mode=False, task=None, prev_actions=None):
         """
         Select an action by planning in the latent space of the world model.
 
@@ -88,12 +91,19 @@ class TDMPC2:
         Returns:
             torch.Tensor: Action to take in the environment.
         """
-        obs = obs.to(self.device, non_blocking=True).unsqueeze(0)
+        if self.cfg.obs == 'ddlp':
+            obs = {k: v.to(self.device, non_blocking=True).unsqueeze(0) for k, v in obs.items()}
+        else:
+            obs = obs.to(self.device, non_blocking=True).unsqueeze(0) # (1, obs.shape)
+
+        if prev_actions is not None:
+            prev_actions = prev_actions.to(self.device, non_blocking=True).unsqueeze(0)
+
         if task is not None:
             task = torch.tensor([task], device=self.device)
         z = self.model.encode(obs, task)
         if self.cfg.mpc:
-            a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
+            a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task, prev_actions=prev_actions)
         else:
             a = self.model.pi(z, task)[int(not eval_mode)][0]
         return a.cpu()
@@ -107,10 +117,18 @@ class TDMPC2:
             z = self.model.next(z, actions[t], task)
             G += discount * reward
             discount *= self.discount[torch.tensor(task)] if self.cfg.multitask else self.discount
-        return G + discount * self.model.Q(z, self.model.pi(z, task)[1], task, return_type='avg')
+
+        last_action = self.model.pi(z, task)[1]
+        if self.cfg.obs == 'ddlp':
+            action_tmp = torch.empty_like(actions[-1])
+            action_tmp[:, :-1] = actions[-1, :, 1:]
+            action_tmp[:, -1] = last_action
+            last_action = action_tmp
+
+        return G + discount * self.model.Q(z, last_action, task, return_type='avg')
 
     @torch.no_grad()
-    def plan(self, z, t0=False, eval_mode=False, task=None):
+    def plan(self, z, t0=False, eval_mode=False, task=None, prev_actions=None):
         """
         Plan a sequence of actions using the learned world model.
 
@@ -125,32 +143,63 @@ class TDMPC2:
         """
         # Sample policy trajectories
         if self.cfg.num_pi_trajs > 0:
-            pi_actions = torch.empty(self.cfg.horizon, self.cfg.num_pi_trajs, self.cfg.action_dim, device=self.device)
-            _z = torch.repeat_interleave(z, repeats=self.cfg.num_pi_trajs, dim=0)
+            if self.cfg.obs == 'ddlp':
+                pi_actions = torch.empty(self.cfg.horizon, self.cfg.num_pi_trajs, self.model.ddlp_model.timestep_horizon, self.cfg.action_dim, device=self.device)
+                pi_actions[0, :, :-1] = prev_actions[:, 1:]
+            else:
+                pi_actions = torch.empty(self.cfg.horizon, self.cfg.num_pi_trajs, self.cfg.action_dim, device=self.device)
+            if self.cfg.obs == 'ddlp':
+                _z = {k: torch.repeat_interleave(v, repeats=self.cfg.num_pi_trajs, dim=0) for k, v in z.items()}
+            else:
+                _z = torch.repeat_interleave(z, repeats=self.cfg.num_pi_trajs, dim=0)
             for t in range(self.cfg.horizon - 1):
-                pi_actions[t] = self.model.pi(_z, task)[1]
+                actions = self.model.pi(_z, task)[1] # _z: 24, emb_size, pi_actions: horizon, 24, action_dim
+                if self.cfg.obs == 'ddlp':
+                    pi_actions[t, :, -1] = actions
+                    pi_actions[t + 1, :, :-1] = pi_actions[t, :, 1:]
+                else:
+                    pi_actions[t] = actions
+
                 _z = self.model.next(_z, pi_actions[t], task)
-            pi_actions[-1] = self.model.pi(_z, task)[1]
+            actions = self.model.pi(_z, task)[1]
+            if self.cfg.obs == 'ddlp':
+                pi_actions[-1, :, -1] = actions
+            else:
+                pi_actions[-1] = actions
 
         # Initialize state and parameters
-        z = torch.repeat_interleave(z, repeats=self.cfg.num_samples, dim=0)
+        if self.cfg.obs == 'ddlp':
+            z = {k: torch.repeat_interleave(v, repeats=self.cfg.num_samples, dim=0) for k, v in z.items()}
+            actions = torch.empty(self.cfg.horizon, self.cfg.num_samples, self.model.ddlp_model.timestep_horizon, self.cfg.action_dim, device=self.device)
+        else:
+            z = torch.repeat_interleave(z, repeats=self.cfg.num_samples, dim=0)
+            actions = torch.empty(self.cfg.horizon, self.cfg.num_samples, self.cfg.action_dim, device=self.device)
+
         mean = torch.zeros(self.cfg.horizon, self.cfg.action_dim, device=self.device)
         std = self.cfg.max_std * torch.ones(self.cfg.horizon, self.cfg.action_dim, device=self.device)
         if not t0:
             mean[:-1] = self._prev_mean[1:]
-        actions = torch.empty(self.cfg.horizon, self.cfg.num_samples, self.cfg.action_dim, device=self.device)
         if self.cfg.num_pi_trajs > 0:
             actions[:, :self.cfg.num_pi_trajs] = pi_actions
+
+        if self.cfg.obs == 'ddlp':
+            actions[0, self.cfg.num_pi_trajs:, :-1] = prev_actions[:, 1:]
 
         # Iterate MPPI
         for _ in range(self.cfg.iterations):
 
             # Sample actions
-            actions[:, self.cfg.num_pi_trajs:] = (mean.unsqueeze(1) + std.unsqueeze(1) * \
-                                                  torch.randn(self.cfg.horizon,
-                                                              self.cfg.num_samples - self.cfg.num_pi_trajs,
-                                                              self.cfg.action_dim, device=std.device)) \
+            sampled_actions = (mean.unsqueeze(1) + std.unsqueeze(1) * \
+                               torch.randn(self.cfg.horizon,
+                                           self.cfg.num_samples - self.cfg.num_pi_trajs,
+                                           self.cfg.action_dim, device=std.device)) \
                 .clamp(-1, 1)
+            if self.cfg.obs == 'ddlp':
+                actions[:, self.cfg.num_pi_trajs:, -1] = sampled_actions
+                for t in range(1, actions.size()[0]):
+                    actions[t, self.cfg.num_pi_trajs:, :-1] = actions[t - 1, self.cfg.num_pi_trajs:, 1:]
+            else:
+                actions[:, self.cfg.num_pi_trajs:] = sampled_actions
             if self.cfg.multitask:
                 actions = actions * self.model._action_masks[task]
 
@@ -158,6 +207,8 @@ class TDMPC2:
             value = self._estimate_value(z, actions, task).nan_to_num_(0)
             elite_idxs = torch.topk(value.squeeze(1), self.cfg.num_elites, dim=0).indices
             elite_value, elite_actions = value[elite_idxs], actions[:, elite_idxs]
+            if self.cfg.obs == 'ddlp':
+                elite_actions = elite_actions[:, :, -1]
 
             # Update parameters
             max_value = elite_value.max(0)[0]
@@ -212,7 +263,7 @@ class TDMPC2:
         return pi_loss.item()
 
     @torch.no_grad()
-    def _td_target(self, next_z, reward, task):
+    def _td_target(self, next_z, reward, task, prev_actions=None):
         """
         Compute the TD-target from a reward and the observation at the following time step.
 
@@ -227,6 +278,10 @@ class TDMPC2:
         batch_shape = reward.size()[:-1]
         next_z = next_z.flatten(end_dim=1)
         pi = self.model.pi(next_z, task)[1]
+        if prev_actions is not None:
+            prev_actions = prev_actions.flatten(end_dim=1)
+            pi = torch.cat([prev_actions[:, 1:], pi.unsqueeze(-2)], dim=-2)
+
         discount = self.discount[task].unsqueeze(-1) if self.cfg.multitask else self.discount
         return reward + discount * self.model.Q(next_z, pi, task, return_type='min', target=True).view(*batch_shape, -1)
 
@@ -245,25 +300,35 @@ class TDMPC2:
         # Compute targets
         with torch.no_grad():
             next_z = self.model.encode(obs[1:], task)
-            td_targets = self._td_target(next_z, reward, task)
+            td_targets = self._td_target(next_z, reward, task, prev_actions=action if self.cfg.obs == 'ddlp' else None)
 
         # Prepare for update
         self.optim.zero_grad(set_to_none=True)
         self.model.train()
 
-        z = self.model.encode(obs[0], task)
-        z_dim = z.size()[1:]
-        # Latent rollout
-        zs = torch.empty(self.cfg.horizon + 1, self.cfg.batch_size, *z_dim, device=self.device)
-        zs[0] = z
-        consistency_loss = 0
-        for t in range(self.cfg.horizon):
-            z = self.model.next(z, action[t], task)
-            consistency_loss += F.mse_loss(z, next_z[t]) * self.cfg.rho ** t
-            zs[t + 1] = z
+        consistency_loss = torch.as_tensor(0, dtype=torch.float32, device=self.device)
+        if self.cfg.obs == 'ddlp':
+            zs = [obs[0]]
+            for t in range(self.cfg.horizon):
+                zs.append(TensorDict(self.model.next(zs[-1], action[t], task), batch_size=obs[0].batch_size))
 
-        # Predictions
-        _zs = zs[:-1]
+            with set_lazy_legacy(False):
+                zs = torch.stack(zs, dim=0)
+            _zs = zs[:-1]
+        else:
+            z = self.model.encode(obs[0], task)
+            z_dim = z.size()[1:]
+            # Latent rollout
+            zs = torch.empty(self.cfg.horizon + 1, self.cfg.batch_size, *z_dim, device=self.device)
+            zs[0] = z
+            for t in range(self.cfg.horizon):
+                z = self.model.next(z, action[t], task)
+                consistency_loss += F.mse_loss(z, next_z[t]) * self.cfg.rho ** t
+                zs[t + 1] = z
+
+            # Predictions
+            _zs = zs[:-1]
+
         batch_shape = _zs.size()[:2]
         _zs = _zs.flatten(end_dim=1)
         action = action.flatten(end_dim=1)

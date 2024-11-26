@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 import warnings
 
@@ -5,6 +6,7 @@ import gym
 import isaacgym
 import torch
 
+from envs.wrappers.ddlp import DDLPExtractorWrapper
 from envs.wrappers.multitask import MultitaskWrapper
 from envs.wrappers.pixels import PixelWrapper
 from envs.wrappers.slots import SlotExtractorWrapper
@@ -69,7 +71,7 @@ def make_multitask_env(cfg):
     return env
 
 
-def make_env(cfg):
+def make_env(cfg, **kwargs):
     """
     Make an environment for TD-MPC2 experiments.
     """
@@ -102,6 +104,15 @@ def make_env(cfg):
         dinosaur = dinosaur.eval()
         slot_extractor = SlotExtractor(model=dinosaur, device=cfg.slot_extractor_device)
         env = SlotExtractorWrapper(cfg, env, slot_extractor)
+    elif obs_type == 'ddlp':
+        ddlp = kwargs['extractor']
+        assert ddlp.action_dim == env.action_space.shape[0]
+        config_path = cfg.ddlp_config_path
+        with open(config_path, 'r') as file_obj:
+            config = json.load(file_obj)
+
+        env = DDLPExtractorWrapper(env, ddlp, device='cuda', num_static_frames=config['num_static_frames'],
+                                   train_enc_prior=config['train_enc_prior'])
 
     if not cfg.multitask:
         env = TensorWrapper(env)

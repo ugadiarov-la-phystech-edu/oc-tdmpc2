@@ -1,5 +1,6 @@
 import os
 import isaacgym
+from dlp import create_ddlp, load_checkpoint
 
 os.environ['MUJOCO_GL'] = 'egl'
 os.environ['LAZY_LEGACY_OP'] = '0'
@@ -51,10 +52,21 @@ def train(cfg: dict):
     print(colored('Work dir:', 'yellow', attrs=['bold']), cfg.work_dir)
 
     trainer_cls = OfflineTrainer if cfg.multitask else OnlineTrainer
+    model = None
+    if cfg.obs == 'ddlp':
+        config_path = cfg.ddlp_config_path
+        checkpoint_path = cfg.ddlp_checkpoint_path
+        action_dim = 3
+        model = create_ddlp(config_path, action_dim)
+        model = load_checkpoint(model, checkpoint_path)
+        model = model.to('cuda')
+        model = model.eval()
+        model.requires_grad_(False)
+
     trainer = trainer_cls(
         cfg=cfg,
-        env=make_env(cfg),
-        agent=TDMPC2(cfg),
+        env=make_env(cfg, extractor=model),
+        agent=TDMPC2(cfg, ddlp_model=model),
         buffer=Buffer(cfg),
         logger=Logger(cfg),
     )

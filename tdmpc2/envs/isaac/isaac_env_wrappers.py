@@ -44,7 +44,7 @@ ISAAC_TASKS = {
 def make_env(cfg):
     if cfg.task not in ISAAC_TASKS:
         raise ValueError('Unknown task:', cfg.task)
-    assert cfg.obs in ('rgb', 'slots'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
+    assert cfg.obs in ('rgb', 'slots', 'ddlp'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
     task = ISAAC_TASKS[cfg.task]
     num_objects = task['num_objects']
     use_out_of_field_reward = task['use_out_of_field_reward']

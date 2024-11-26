@@ -309,8 +309,9 @@ def enc(cfg, out={}):
                          cfg.latent_dim, act=SimNorm(cfg))
         elif k == 'rgb':
             out[k] = conv(cfg.obs_shape[k], cfg.num_channels, act=SimNorm(cfg))
-        elif k == 'slots':
+        elif k in ('slots', 'fg', 'bg'):
             out[k] = nn.Identity()
+            out['ddlp'] = nn.Identity()
         else:
             raise NotImplementedError(f"Encoder for observation type {k} not implemented.")
     return nn.ModuleDict(out)

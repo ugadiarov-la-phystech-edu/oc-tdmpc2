@@ -90,6 +90,16 @@ features: [ 2048, 2048, 2048 ]
 slot_extractor_checkpoint_path: ???
 slot_extractor_device: cuda
 
+# ddlp
+eit_masking: true
+eit_embed_dim: 64
+eit_h_dim: 256
+eit_n_head: 8
+eit_dropout: 0
+eit_action_particle: true
+ddlp_config_path: ???
+ddlp_checkpoint_path: ???
+
 # convenience
 work_dir: ???
 task_title: ???

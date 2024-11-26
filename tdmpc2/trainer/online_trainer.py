@@ -18,21 +18,29 @@ class OnlineTrainer(Trainer):
 
     def common_metrics(self):
         """Return a dictionary of current metrics."""
+        total_time = time() - self._start_time
         return dict(
             step=self._step,
             episode=self._ep_idx,
-            total_time=time() - self._start_time,
+            total_time=total_time,
+            fps= self._step / total_time
         )
 
     def eval(self):
         """Evaluate a TD-MPC2 agent."""
         ep_rewards, ep_successes = [], []
+        total_time = 0
+        total_steps = 0
         for i in range(self.cfg.eval_episodes):
             obs, done, ep_reward, t = self.env.reset(), False, 0, 0
             if self.cfg.save_video:
                 self.logger.video.init(self.env, enabled=(i == 0))
+            start_time = time()
             while not done:
-                action = self.agent.act(obs, t0=t == 0, eval_mode=True)
+                if self.cfg.obs == 'ddlp':
+                    previous_actions = torch.from_numpy(self.env.get_actions()).to(obs['fg'].device)
+
+                action = self.agent.act(obs, t0=t == 0, eval_mode=True, prev_actions=previous_actions)
                 obs, reward, done, info = self.env.step(action)
                 ep_reward += reward
                 t += 1
@@ -40,21 +48,28 @@ class OnlineTrainer(Trainer):
                     self.logger.video.record(self.env)
             ep_rewards.append(ep_reward)
             ep_successes.append(info['success'])
+            total_time += time() - start_time
+            total_steps += t
             if self.cfg.save_video:
                 self.logger.video.save(self._step)
         return dict(
             episode_reward=np.nanmean(ep_rewards),
             episode_success=np.nanmean(ep_successes),
+            fps=total_steps / total_time,
         )
 
     def to_td(self, obs, action=None, reward=None):
         """Creates a TensorDict for a new episode."""
         if isinstance(obs, dict):
-            obs = TensorDict(obs, batch_size=(), device='cpu')
+            obs = TensorDict({k: v.unsqueeze(0) for k, v in obs.items()}, batch_size=(), device='cpu')
         else:
             obs = obs.unsqueeze(0).cpu()
         if action is None:
-            action = torch.full_like(self.env.rand_act(), float('nan'))
+            if self.cfg.obs == 'ddlp':
+                action = torch.full(self.env.get_actions().shape, float('nan'), dtype=torch.float32)
+            else:
+                action = torch.full_like(self.env.rand_act(), float('nan'))
+
         if reward is None:
             reward = torch.tensor(float('nan'))
         td = TensorDict(dict(
@@ -96,11 +111,16 @@ class OnlineTrainer(Trainer):
 
             # Collect experience
             if self._step > self.cfg.seed_steps:
-                action = self.agent.act(obs, t0=len(self._tds) == 1)
+                action = self.agent.act(obs, t0=len(self._tds) == 1, prev_actions=torch.from_numpy(self.env.get_actions()))
             else:
                 action = self.env.rand_act()
             obs, reward, done, info = self.env.step(action)
-            self._tds.append(self.to_td(obs, action, reward))
+            if self.cfg.obs == 'ddlp':
+                buffer_action = torch.from_numpy(self.env.get_actions())
+            else:
+                buffer_action = action
+
+            self._tds.append(self.to_td(obs, buffer_action, reward))
 
             # Update agent
             if self._step >= self.cfg.seed_steps:
@@ -115,7 +135,7 @@ class OnlineTrainer(Trainer):
 
             if self._step > next_save_step:
                 next_save_step += self.cfg.save_every
-                self.logger.save_agent(self.agent, statistics=self.common_metrics(), identifier='checkpoint')
+                self.logger.save_agent(self.agent, statistics=self.common_metrics(), identifier='checkpoint', buffer=self.buffer)
 
             self._step += 1
 

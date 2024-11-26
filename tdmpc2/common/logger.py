@@ -128,6 +128,11 @@ class Logger:
         os.environ["WANDB_SILENT"] = "true" if cfg.wandb_silent else "false"
         import wandb
 
+        config_dict = OmegaConf.to_container(cfg, resolve=True)
+        slurm_job_id_env_key = 'SLUM_JOB_ID'
+        if slurm_job_id_env_key in os.environ:
+            config_dict[slurm_job_id_env_key] = os.environ[slurm_job_id_env_key]
+
         wandb.init(
             project=self.project,
             entity=self.entity,
@@ -153,10 +158,12 @@ class Logger:
     def model_dir(self):
         return self._model_dir
 
-    def save_agent(self, agent=None, statistics={}, identifier='final'):
+    def save_agent(self, agent=None, statistics={}, identifier='final', buffer=None):
         if self._save_agent and agent:
             fp = self._model_dir / f'{str(identifier)}.pt'
             agent.save(statistics, fp)
+            buffer_path = self._model_dir / f'{str(identifier)}.buf'
+            buffer.dumps(buffer_path)
             if self._wandb and self._save_checkpoint_wandb:
                 artifact = self._wandb.Artifact(
                     self._group + '-' + str(self._seed) + '-' + str(identifier),
