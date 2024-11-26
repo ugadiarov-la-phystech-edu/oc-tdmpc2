@@ -140,7 +140,7 @@ class Logger:
             group=self.group_name,
             tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
             dir=self._log_dir,
-            config=OmegaConf.to_container(cfg, resolve=True),
+            config=config_dict,
         )
         print(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
         self._wandb = wandb
