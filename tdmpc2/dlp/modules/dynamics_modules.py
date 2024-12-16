@@ -92,7 +92,7 @@ class CausalParticleSelfAttention(nn.Module):
     """
 
     def __init__(self, n_embed, n_head, block_size, attn_pdrop=0.1, resid_pdrop=0.1,
-                 positional_bias=False, max_particles=None, linear_bias=False):
+                 positional_bias=False, max_particles=None, linear_bias=False, action_particle=True):
         super().__init__()
         assert n_embed % n_head == 0
         # key, query, value projections for all heads
@@ -110,6 +110,11 @@ class CausalParticleSelfAttention(nn.Module):
         self.n_head = n_head
         self.positional_bias = positional_bias
         self.max_particles = max_particles
+        self.action_particle = action_particle
+        if self.action_particle:
+            self.mask_action_cross_attention = torch.full((block_size, block_size), fill_value=float('-inf'), dtype=torch.float32)
+            self.mask_action_cross_attention.fill_diagonal_(0)
+
         if self.positional_bias:
             self.rel_pos_bias = SimpleRelativePositionalBias(block_size, n_head, max_particles=max_particles)
         else:
@@ -128,15 +133,21 @@ class CausalParticleSelfAttention(nn.Module):
         att = att.view(B, -1, N, T, N, T)  # (B, nh, N, T, N, T)
         if self.positional_bias:
             if self.max_particles is not None:
-                bias_t, bias_p = self.rel_pos_bias(T, num_particles=N)
+                n = N - int(self.action_particle)
+                bias_t, bias_p = self.rel_pos_bias(T, num_particles=n)
                 bias_t = bias_t.view(1, bias_t.shape[1], 1, T, 1, T)
-                bias_p = bias_p.view(1, bias_p.shape[1], N, 1, N, 1)
-                att = att + bias_t + bias_p
+                bias_p = bias_p.view(1, bias_p.shape[1], n, 1, n, 1)
+                att = att + bias_t
+                att[:, :, :n, :, :n, :] = att[:, :, :n, :, :n, :] + bias_p
             else:
                 bias_t, _ = self.rel_pos_bias(T)
                 bias_t = bias_t.view(1, bias_t.shape[1], 1, T, 1, T)
                 att = att + bias_t
         att = att.masked_fill(self.mask[:, :, :, :T, :, :T] == 0, float('-inf'))
+        if self.action_particle:
+            att[:, :, -1] = float('-inf')
+            att[:, :, -1, :, -1, :] = self.mask_action_cross_attention.to(att.device)
+
         att = att.view(B, -1, N * T, N * T)  # (B, nh, N * T, N * T)
         att = F.softmax(att, dim=-1)
         att = self.attn_drop(att)
@@ -169,13 +180,15 @@ class Block(nn.Module):
     """ an unassuming Transformer block """
 
     def __init__(self, n_embed, n_head, block_size, attn_pdrop=0.1, resid_pdrop=0.1, hidden_dim_multiplier=4,
-                 positional_bias=False, activation='gelu', max_particles=None):
+                 positional_bias=False, activation='gelu', max_particles=None, action_particle=True):
         super().__init__()
         self.max_particles = max_particles
+        self.action_particle = action_particle
         self.ln1 = nn.LayerNorm(n_embed)
         self.ln2 = nn.LayerNorm(n_embed)
         self.attn = CausalParticleSelfAttention(n_embed, n_head, block_size, attn_pdrop, resid_pdrop,
-                                                positional_bias=positional_bias, max_particles=max_particles)
+                                                positional_bias=positional_bias, max_particles=max_particles,
+                                                action_particle=action_particle)
         self.mlp = MLP(n_embed, resid_pdrop, hidden_dim_multiplier, activation=activation)
 
     def forward(self, x):
@@ -186,9 +199,11 @@ class Block(nn.Module):
 
 class ParticleTransformer(nn.Module):
     def __init__(self, n_embed, n_head, n_layer, block_size, output_dim, attn_pdrop=0.1, resid_pdrop=0.1,
-                 hidden_dim_multiplier=4, positional_bias=False, activation='gelu', max_particles=None):
+                 hidden_dim_multiplier=4, positional_bias=False, activation='gelu', max_particles=None,
+                 action_particle=True):
         super().__init__()
         self.positional_bias = positional_bias
+        self.action_particle = action_particle
         self.max_particles = max_particles  # for positional bias
         # input embedding stem
         if self.positional_bias:
@@ -198,7 +213,8 @@ class ParticleTransformer(nn.Module):
         # transformer
         self.blocks = nn.Sequential(*[Block(n_embed, n_head, block_size, attn_pdrop,
                                             resid_pdrop, hidden_dim_multiplier,
-                                            positional_bias, activation=activation, max_particles=max_particles)
+                                            positional_bias, activation=activation, max_particles=max_particles,
+                                            action_particle=action_particle)
                                       for _ in range(n_layer)])
         # decoder head
         self.ln_f = nn.LayerNorm(n_embed)
@@ -267,11 +283,9 @@ class ParticleFeatureProjection(torch.nn.Module):
 
         self.action_dim = action_dim
         if self.action_dim is not None:
-            self.particle_dim += self.action_dim
-            self.bg_features_dim += self.action_dim
             self.action_projection = nn.Sequential(nn.Linear(self.action_dim, hidden_dim),
                                                    nn.ReLU(True),
-                                                   nn.Linear(hidden_dim, self.action_dim))
+                                                   nn.Linear(hidden_dim, output_dim))
 
         self.xy_projection = nn.Sequential(nn.Linear(2, hidden_dim),
                                            nn.ReLU(True),
@@ -313,21 +327,18 @@ class ParticleFeatureProjection(torch.nn.Module):
         z_obj_on_proj = self.obj_on_projection(z_obj_on)
         z_depth_proj = self.depth_projection(z_depth)
         z_features_proj = self.features_projection(z_features)
-        z_all = [z_proj, z_scale_proj, z_obj_on_proj, z_depth_proj, z_features_proj]
-        z_bg_features = [z_bg_features]
+        z_all = torch.cat([z_proj, z_scale_proj, z_obj_on_proj, z_depth_proj, z_features_proj], dim=-1)
+        # z_all: [bs, n_particles, 2 + 2 + 1 + 1 + in_features_dim]
+        z_all_proj = self.particle_projection(z_all)  # [bs, n_particles, output_dim]  or [bs, n_particle, hidden_dim]
+        z_bg_features_proj = self.bg_features_projection(z_bg_features)  # [bs, output_dim] or [bs, hidden_dim]
+        state_features = [z_all_proj, z_bg_features_proj.unsqueeze(1)]
         if action is not None:
             action_proj = self.action_projection(action)
-            z_bg_features.append(action_proj)
-            z_all.append(action_proj.unsqueeze(1).expand(-1, n_particles, -1))
+            state_features.append(action_proj.unsqueeze(1))
 
-        z_all = torch.cat(z_all, dim=-1)
-        # z_all: [bs, n_particles, 2 + 2 + 1 + 1 + in_features_dim + action_dim]
-        z_all_proj = self.particle_projection(z_all)  # [bs, n_particles, output_dim]  or [bs, n_particle, hidden_dim]
-        z_bg_features = torch.cat(z_bg_features, dim=-1)
-        z_bg_features_proj = self.bg_features_projection(z_bg_features)  # [bs, output_dim] or [bs, hidden_dim]
         # concat
-        z_processed = torch.cat([z_all_proj, z_bg_features_proj.unsqueeze(1)], dim=1)
-        # [bs, n_particles + 1, output_dim] or [bs, n_particles + 1, hidden_dim]
+        z_processed = torch.cat(state_features, dim=1)
+        # [bs, n_particles + 1 + 1, output_dim] or [bs, n_particles + 1, hidden_dim]
         return z_processed
 
 
@@ -432,7 +443,8 @@ class DynamicsDLP(nn.Module):
                                                         attn_pdrop=dropout, resid_pdrop=dropout,
                                                         hidden_dim_multiplier=4,
                                                         positional_bias=positional_bias,
-                                                        activation='gelu', max_particles=max_particles)
+                                                        activation='gelu', max_particles=max_particles,
+                                                        action_particle=action_dim is not None)
         self.particle_decoder = ParticleFeatureDecoder(self.projection_dim, features_dim, bg_features_dim,
                                                        hidden_dim, kp_activation=kp_activation, max_delta=max_delta,
                                                        delta_features=predict_delta)
@@ -462,15 +474,15 @@ class DynamicsDLP(nn.Module):
             action = action[:, -block_size:].reshape(-1, *action.shape[2:])
             particle_projection = self.particle_projection(z_v, z_scale_v, z_obj_on_v, z_depth_v, z_features_v,
                                                            z_bg_features_v, action=action)
-            # [bs * T, n_particles + 1, projection_dim]
+            # [bs * T, n_particles + 1 + 1, projection_dim]
             particle_proj_int = particle_projection
 
             # unroll forward
             particle_proj_int = particle_proj_int.view(bs, -1, *particle_proj_int.shape[1:])
-            # [bs, T, n_particles + 1, 2 * projection_dim]
+            # [bs, T, n_particles + 1 + 1, 2 * projection_dim]
             particle_proj_int = particle_proj_int.permute(0, 2, 1, 3)
-            # [bs, n_particles + 1, T, 2 * projection_dim]
-            particles_trans = self.particle_transformer(particle_proj_int)
+            # [bs, n_particles + 1 + 1, T, 2 * projection_dim]
+            particles_trans = self.particle_transformer(particle_proj_int)[:, :n_particles + 1]
             # [bs * (n_particles + 1), T, projection_dim] or [bs, (n_particles + 1), T, projection_dim]
             particles_trans = particles_trans[:, :, -1]  # [bs, (n_particles + 1), projection_dim]
             # [bs, n_particles + 1, projection_dim]
@@ -567,7 +579,7 @@ class DynamicsDLP(nn.Module):
         # [bs, T, n_particles + 1, 2 * projection_dim]
         particle_proj_int = particle_proj_int.permute(0, 2, 1, 3)
         # [bs, n_particles + 1, T, 2 * projection_dim]
-        particles_trans = self.particle_transformer(particle_proj_int)
+        particles_trans = self.particle_transformer(particle_proj_int)[:, :n_particles + 1]
         # [bs, n_particles + 1, T, projection_dim]
         particles_trans = particles_trans.permute(0, 2, 1, 3)
         # [bs, T, n_particles + 1, projection_dim]

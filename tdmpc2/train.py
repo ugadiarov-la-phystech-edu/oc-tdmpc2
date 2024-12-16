@@ -56,8 +56,7 @@ def train(cfg: dict):
     if cfg.obs == 'ddlp':
         config_path = cfg.ddlp_config_path
         checkpoint_path = cfg.ddlp_checkpoint_path
-        action_dim = 3
-        model = create_ddlp(config_path, action_dim)
+        model = create_ddlp(config_path)
         model = load_checkpoint(model, checkpoint_path)
         model = model.to('cuda')
         model = model.eval()

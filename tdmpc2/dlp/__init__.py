@@ -6,10 +6,11 @@ import torch
 from dlp.models import ObjectDynamicsDLP
 
 
-def create_ddlp(config_path, action_dim):
+def create_ddlp(config_path):
     with open(config_path, 'r') as f:
         config = json.load(f)
 
+    action_dim = config['action_dim']
     # data and general
     ds = config['ds']
     ch = config['ch']  # image channels

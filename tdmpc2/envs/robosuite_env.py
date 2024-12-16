@@ -15,6 +15,11 @@ ROBOSUITE_TASKS = {
         initialization_noise_magnitude=0.5,
         use_random_object_position=False,
     ),
+    'lift-medium': dict(
+        env='Lift',
+        initialization_noise_magnitude=0.5,
+        use_random_object_position='medium',
+    ),
 }
 
 
@@ -55,7 +60,7 @@ class RobosuiteEnv(gym.Env):
     metadata = {"render.modes": ["rgb_array"]}
 
     def __init__(self, cfg):
-        assert cfg.task == 'lift'
+        assert cfg.task in ROBOSUITE_TASKS.keys(), f'Expected tasks={list(ROBOSUITE_TASKS.keys())}. Actual task={cfg.task}'
         self.cfg = cfg
         task_cfg = ROBOSUITE_TASKS[cfg.task]
         self._task = task_cfg['env']
@@ -163,7 +168,7 @@ def make_env(cfg):
     """
     if cfg.task not in ROBOSUITE_TASKS:
         raise ValueError('Unknown task:', cfg.task)
-    assert cfg.obs in ('rgb', 'slots'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
+    assert cfg.obs in ('rgb', 'slots', 'ddlp'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
     env = RobosuiteEnv(cfg)
     env = TimeLimit(env, max_episode_steps=cfg['time_limit'])
     env.max_episode_steps = env._max_episode_steps
