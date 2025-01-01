@@ -1,4 +1,5 @@
 import json
+import traceback
 from copy import deepcopy
 import warnings
 
@@ -90,7 +91,7 @@ def make_env(cfg, **kwargs):
             try:
                 env = fn(cfg)
             except ValueError:
-                pass
+                print(traceback.format_exc())
         if env is None:
             raise ValueError(
                 f'Failed to make environment "{cfg.task}": please verify that dependencies are installed and that the task exists.')
