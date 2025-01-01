@@ -1,0 +1,24 @@
+num_objects_range:
+- 4
+- 4
+target:
+- violet
+target_idx: null
+COLORS:
+- violet
+- orange
+- yellow
+- cyan
+unique_colors: false
+mode: hard
+rew_type: sparse
+state_size: 40
+render_mode: image
+object_wise: null
+tags: cwtargetN4C4S1S1,easymode,sparserewtype
+num_stacked_obss: 1
+obs_channels: 3
+skip_frame: 10
+task: target
+name: CwTargetN4C4S1S1Env
+env: CwTargetEnv
