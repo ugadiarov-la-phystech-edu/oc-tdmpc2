@@ -63,7 +63,8 @@ class TDMPC2:
             statistics (dict): Statistics (step, metrics, etc.)
             fp (str): Filepath to save state dict to.
         """
-        checkpoint = {"model": self.model.state_dict()}
+        checkpoint = {"model": self.model.state_dict(), "optim": self.optim.state_dict(),
+                      "pi_optim": self.pi_optim.state_dict(), "scale": self.scale.state_dict()}
         checkpoint.update(statistics)
         torch.save(checkpoint, fp)
 
@@ -76,6 +77,9 @@ class TDMPC2:
         """
         state_dict = fp if isinstance(fp, dict) else torch.load(fp)
         self.model.load_state_dict(state_dict["model"])
+        self.optim.load_state_dict(state_dict["optim"])
+        self.pi_optim.load_state_dict(state_dict["pi_optim"])
+        self.scale.load_state_dict(state_dict["scale"])
 
     @torch.no_grad()
     def act(self, obs, t0=False, eval_mode=False, task=None, prev_actions=None):
