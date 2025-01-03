@@ -11,6 +11,7 @@ env_config_path: ???
 
 # evaluation
 checkpoint: ???
+checkpoint_buffer: ???
 eval_episodes: 10
 eval_freq: 50000
 

@@ -15,6 +15,13 @@ class OnlineTrainer(Trainer):
         self._step = 0
         self._ep_idx = 0
         self._start_time = time()
+        if self.cfg.checkpoint is not None:
+            print(f'Loading checkpoint: {self.cfg.checkpoint}')
+            state_dict = torch.load(self.cfg.checkpoint)
+            self.agent.load(state_dict)
+            self._step = state_dict['step']
+            self._ep_idx = state_dict['episode']
+            self._start_time = time() - state_dict['total_time']
 
     def common_metrics(self):
         """Return a dictionary of current metrics."""

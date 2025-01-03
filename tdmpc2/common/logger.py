@@ -118,6 +118,7 @@ class Logger:
         self.entity = cfg.get("wandb_entity", "none")
         self.run_name = f'{cfg.get("wandb_run_name", str(datetime.datetime.now()))}_{str(cfg.seed)}'
         self.group_name = cfg.get("wandb_group_name", self._group)
+        self.run_id = cfg.get("wandb_run_id", None)
         if cfg.disable_wandb or self.project == "none" or self.entity == "none":
             print(colored("Wandb disabled.", "blue", attrs=["bold"]))
             cfg.save_agent = False
@@ -141,6 +142,8 @@ class Logger:
             tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
             dir=self._log_dir,
             config=config_dict,
+            resume="never" if self.run_id is None else "must",
+            id=self.run_id,
         )
         print(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
         self._wandb = wandb

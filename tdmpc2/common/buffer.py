@@ -60,9 +60,14 @@ class Buffer():
         # Heuristic: decide whether to use CUDA or CPU memory
         storage_device = 'cuda' if 2.5 * total_bytes < mem_free else 'cpu'
         print(f'Using {storage_device.upper()} memory for storage.')
-        return self._reserve_buffer(
+        buffer = self._reserve_buffer(
             LazyTensorStorage(self._capacity, device=torch.device(storage_device))
         )
+        if self.cfg.checkpoint_buffer is not None:
+            print(f'Loading buffer: {self.cfg.checkpoint_buffer}')
+            buffer.loads(self.cfg.checkpoint_buffer)
+
+        return buffer
 
     def _to_device(self, *args, device=None):
         if device is None:
