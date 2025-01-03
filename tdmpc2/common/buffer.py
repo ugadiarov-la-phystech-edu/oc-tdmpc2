@@ -23,6 +23,7 @@ class Buffer():
         )
         self._batch_size = cfg.batch_size * (cfg.horizon + 1)
         self._num_eps = 0
+        self._buffer = None
 
     @property
     def capacity(self):
@@ -33,6 +34,10 @@ class Buffer():
     def num_eps(self):
         """Return the number of episodes in the buffer."""
         return self._num_eps
+
+    @num_eps.setter
+    def num_eps(self, num_eps):
+        self._num_eps = num_eps
 
     def _reserve_buffer(self, storage):
         """
@@ -46,7 +51,10 @@ class Buffer():
             batch_size=self._batch_size,
         )
 
-    def _init(self, tds):
+    def is_initialized(self):
+        return self._buffer is not None
+
+    def init(self, tds):
         """Initialize the replay buffer. Use the first episode to estimate storage requirements."""
         print(f'Buffer capacity: {self._capacity:,}')
         storage_device = self.cfg.buffer_storage_device
@@ -70,7 +78,7 @@ class Buffer():
             print(f'Loading buffer: {self.cfg.checkpoint_buffer}')
             buffer.loads(self.cfg.checkpoint_buffer)
 
-        return buffer
+        self._buffer = buffer
 
     def _to_device(self, *args, device=None):
         if device is None:
@@ -92,8 +100,6 @@ class Buffer():
     def add(self, td):
         """Add an episode to the buffer."""
         td['episode'] = torch.ones_like(td['reward'], dtype=torch.int64) * self._num_eps
-        if self._num_eps == 0:
-            self._buffer = self._init(td)
         self._buffer.extend(td)
         self._num_eps += 1
         return self._num_eps
