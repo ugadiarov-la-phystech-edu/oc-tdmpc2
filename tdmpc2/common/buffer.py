@@ -49,16 +49,19 @@ class Buffer():
     def _init(self, tds):
         """Initialize the replay buffer. Use the first episode to estimate storage requirements."""
         print(f'Buffer capacity: {self._capacity:,}')
-        mem_free, _ = torch.cuda.mem_get_info()
-        bytes_per_step = sum([
-            (v.numel() * v.element_size() if not isinstance(v, TensorDict) \
-                 else sum([x.numel() * x.element_size() for x in v.values()])) \
-            for v in tds.values()
-        ]) / len(tds)
-        total_bytes = bytes_per_step * self._capacity
-        print(f'Storage required: {total_bytes / 1e9:.2f} GB')
-        # Heuristic: decide whether to use CUDA or CPU memory
-        storage_device = 'cuda' if 2.5 * total_bytes < mem_free else 'cpu'
+        storage_device = self.cfg.buffer_storage_device
+        if storage_device is None:
+            mem_free, _ = torch.cuda.mem_get_info()
+            bytes_per_step = sum([
+                (v.numel() * v.element_size() if not isinstance(v, TensorDict) \
+                     else sum([x.numel() * x.element_size() for x in v.values()])) \
+                for v in tds.values()
+            ]) / len(tds)
+            total_bytes = bytes_per_step * self._capacity
+            print(f'Storage required: {total_bytes / 1e9:.2f} GB')
+            # Heuristic: decide whether to use CUDA or CPU memory
+            storage_device = 'cuda' if 2.5 * total_bytes < mem_free else 'cpu'
+
         print(f'Using {storage_device.upper()} memory for storage.')
         buffer = self._reserve_buffer(
             LazyTensorStorage(self._capacity, device=torch.device(storage_device))
