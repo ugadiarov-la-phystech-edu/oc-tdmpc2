@@ -57,7 +57,7 @@ class Buffer():
     def init(self, tds):
         """Initialize the replay buffer. Use the first episode to estimate storage requirements."""
         print(f'Buffer capacity: {self._capacity:,}')
-        storage_device = self.cfg.buffer_storage_device
+        storage_device = self.cfg.get('buffer_storage_device', None)
         if storage_device is None:
             mem_free, _ = torch.cuda.mem_get_info()
             bytes_per_step = sum([
