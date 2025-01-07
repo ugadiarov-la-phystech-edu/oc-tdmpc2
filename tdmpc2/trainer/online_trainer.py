@@ -16,7 +16,7 @@ class OnlineTrainer(Trainer):
         self._ep_idx = 0
         self._start_time = time()
         self._tds = None
-        if 'checkpoint' in self.cfg:
+        if self.cfg.get('checkpoint', None):
             print(f'Loading checkpoint: {self.cfg.checkpoint}')
             state_dict = torch.load(self.cfg.checkpoint)
             self.agent.load(state_dict)

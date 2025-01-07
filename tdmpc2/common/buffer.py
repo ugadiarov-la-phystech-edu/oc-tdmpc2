@@ -74,7 +74,7 @@ class Buffer():
         buffer = self._reserve_buffer(
             LazyTensorStorage(self._capacity, device=torch.device(storage_device))
         )
-        if 'checkpoint_buffer' in self.cfg:
+        if self.cfg.get('checkpoint_buffer', None):
             print(f'Loading buffer: {self.cfg.checkpoint_buffer}')
             buffer.loads(self.cfg.checkpoint_buffer)
 

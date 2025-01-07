@@ -142,8 +142,8 @@ class Logger:
             tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
             dir=self._log_dir,
             config=config_dict,
-            resume="never" if self.run_id is None else "must",
-            id=self.run_id,
+            resume="must" if self.run_id else "never",
+            id=self.run_id if self.run_id else None,
         )
         print(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
         self._wandb = wandb
