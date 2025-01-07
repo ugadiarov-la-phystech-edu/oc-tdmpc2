@@ -101,6 +101,7 @@ eit_h_dim: 256
 eit_n_head: 8
 eit_dropout: 0
 eit_action_particle: true
+eit_use_background: false
 ddlp_config_path: ???
 ddlp_checkpoint_path: ???
 

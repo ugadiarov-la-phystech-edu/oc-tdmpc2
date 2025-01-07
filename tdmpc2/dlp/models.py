@@ -1759,6 +1759,9 @@ class ObjectDynamicsDLP(nn.Module):
         # (x, y), (scale_x, scale_y), depth, learned_feature_dim, obn_on
         return 2 + 2 + 1 + self.learned_feature_dim + 1
 
+    def get_dlp_background_dim(self):
+        return self.bg_learned_feature_dim
+
     @staticmethod
     def get_dlp_rep(pixel_xy, scale_xy, depth, features, transparency):
         rep = torch.cat((pixel_xy, scale_xy, depth, features, transparency,), dim=-1)

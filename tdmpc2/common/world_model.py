@@ -377,11 +377,13 @@ class DDLPWorldModel(nn.Module):
 
         self._encoder = layers.enc(cfg)
         self._dynamics = nn.Identity()
-        self._reward = EITCritic(self.cfg, self.ddlp_model.get_dlp_features_dim(), self.ddlp_model.action_dim,
-                                 n_critics=1, out_dim=max(cfg.num_bins, 1))
-        self._pi = EITActor(self.cfg, self.ddlp_model.get_dlp_features_dim(), self.ddlp_model.action_dim)
-        self._Qs = EITCritic(self.cfg, self.ddlp_model.get_dlp_features_dim(), self.ddlp_model.action_dim,
-                                 n_critics=cfg.num_q, out_dim=max(cfg.num_bins, 1))
+        particle_fdim = self.ddlp_model.get_dlp_features_dim()
+        background_fdim = self.ddlp_model.get_dlp_background_dim()
+        self._reward = EITCritic(self.cfg, particle_fdim, self.ddlp_model.action_dim, n_critics=1,
+                                 out_dim=max(cfg.num_bins, 1), background_fdim=background_fdim)
+        self._pi = EITActor(self.cfg, particle_fdim, self.ddlp_model.action_dim, background_fdim=background_fdim)
+        self._Qs = EITCritic(self.cfg, particle_fdim, self.ddlp_model.action_dim, n_critics=cfg.num_q,
+                             out_dim=max(cfg.num_bins, 1), background_fdim=background_fdim)
         self.apply(init.weight_init)
         init.zero_([self._reward.q_networks[0].output_mlp[-1].weight] + [q.output_mlp[-1].weight for q in self._Qs.q_networks])
         self._target_Qs = deepcopy(self._Qs).requires_grad_(False)
@@ -476,7 +478,7 @@ class DDLPWorldModel(nn.Module):
         action = a[:, -1]
         if self.cfg.multitask:
             x = self.task_emb(x, task)
-        return self._reward(x, action)[0]
+        return self._reward(x, action, bg=z['bg'][:, -1])[0]
 
     def pi(self, z, task):
         """
@@ -490,7 +492,7 @@ class DDLPWorldModel(nn.Module):
             x = self.task_emb(x, task)
 
         # Gaussian policy prior
-        mu, log_std = self._pi(x).chunk(2, dim=-1)
+        mu, log_std = self._pi(x, bg=z['bg'][:, -1]).chunk(2, dim=-1)
         log_std = math.log_std(log_std, self.log_std_min, self.log_std_dif)
         eps = torch.randn_like(mu)
 
@@ -533,7 +535,7 @@ class DDLPWorldModel(nn.Module):
             x = self.task_emb(x, task)
 
         Qs = self._target_Qs if target else self._Qs
-        out = torch.stack(Qs(x, action))
+        out = torch.stack(Qs(x, action, bg=z['bg'][:, -1]))
 
         if return_type == 'all':
             return out
