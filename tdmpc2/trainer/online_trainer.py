@@ -91,12 +91,12 @@ class OnlineTrainer(Trainer):
 
     def train(self):
         """Train a TD-MPC2 agent."""
-        train_metrics, done, eval_next = {}, True, True
+        train_metrics, done, eval_next = {}, True, self.cfg.eval_freq > 0
         next_save_step = self._step + self.cfg.save_every
         while self._step <= self.cfg.steps:
 
             # Evaluate agent periodically
-            if self._step % self.cfg.eval_freq == 0:
+            if self.cfg.eval_freq > 0 and self._step % self.cfg.eval_freq == 0:
                 eval_next = True
 
             # Reset environment
