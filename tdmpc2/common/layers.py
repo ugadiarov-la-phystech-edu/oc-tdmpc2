@@ -138,9 +138,10 @@ class GNN(torch.nn.Module):
         tmp_action_dim = self.action_dim
         edge_mlp_input_size = self.input_dim * 2 + int(self.edge_actions) * tmp_action_dim
 
-        self.edge_mlp = nn.Sequential(*self.make_node_mlp_layers_(
-            edge_mlp_input_size, self.hidden_dim, act_fn, layer_norm
-        ))
+        if self.use_interactions:
+            self.edge_mlp = nn.Sequential(*self.make_node_mlp_layers_(
+                edge_mlp_input_size, self.hidden_dim, act_fn, layer_norm
+            ))
 
         if self.num_objects == 1 or not self.use_interactions:
             node_input_dim = self.input_dim + tmp_action_dim

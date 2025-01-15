@@ -92,7 +92,7 @@ class Buffer():
         Expects `td` to be a TensorDict with batch size TxB.
         """
         obs = td['obs']
-        action = td['action'][1:]
+        action = td['action']
         reward = td['reward'][1:].unsqueeze(-1)
         task = td['task'][0] if 'task' in td.keys() else None
         return self._to_device(obs, action, reward, task)

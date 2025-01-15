@@ -5,7 +5,7 @@ from tensordict import set_lazy_legacy, TensorDict
 
 from common import math
 from common.scale import RunningScale
-from common.world_model import WorldModel, OCWorldModel, DDLPWorldModel
+from common.world_model import WorldModel, OCWorldModel, DDLPWorldModel, DDLPGNNWorldModel
 
 
 class TDMPC2:
@@ -21,7 +21,12 @@ class TDMPC2:
         if self.cfg.obs == 'slots':
             self.model = OCWorldModel(cfg).to(self.device)
         elif self.cfg.obs == 'ddlp':
-            self.model = DDLPWorldModel(cfg, ddlp_model=ddlp_model).to(self.device)
+            if self.cfg.world_model_type == 'eit':
+                self.model = DDLPWorldModel(cfg, ddlp_model=ddlp_model).to(self.device)
+            elif self.cfg.world_model_type == 'gnn':
+                self.model = DDLPGNNWorldModel(cfg, ddlp_model=ddlp_model).to(self.device)
+            else:
+                raise ValueError(f'Unexpected world model type: {self.cfg.world_model_type}')
         else:
             self.model = WorldModel(cfg).to(self.device)
 
@@ -235,7 +240,7 @@ class TDMPC2:
             a += std * torch.randn(self.cfg.action_dim, device=std.device)
         return a.clamp_(-1, 1)
 
-    def update_pi(self, zs, task):
+    def update_pi(self, zs, task, prev_actions=None):
         """
         Update policy using a sequence of latent states.
 
@@ -251,7 +256,10 @@ class TDMPC2:
         self.pi_optim.zero_grad(set_to_none=True)
         self.model.track_q_grad(False)
         _, pis, log_pis, _ = self.model.pi(zs, task)
-        qs = self.model.Q(zs, pis, task, return_type='avg')
+        if prev_actions is not None:
+            prev_actions = prev_actions.flatten(end_dim=1)
+
+        qs = self.model.Q(zs, pis, task, return_type='avg', prev_actions=prev_actions)
         self.scale.update(qs[0])
         qs = self.scale(qs).view(*batch_shape, -1)
         log_pis = log_pis.view(*batch_shape, -1)
@@ -279,6 +287,8 @@ class TDMPC2:
         Returns:
             torch.Tensor: TD-target.
         """
+        # next_z -> batch_size, horizon, *
+        # prev_actions -> batch_size, horizon, action_dim
         batch_shape = reward.size()[:-1]
         next_z = next_z.flatten(end_dim=1)
         pi = self.model.pi(next_z, task)[1]
@@ -300,11 +310,12 @@ class TDMPC2:
             dict: Dictionary of training statistics.
         """
         obs, action, reward, task = buffer.sample()
+        next_action = action[1:]
 
         # Compute targets
         with torch.no_grad():
             next_z = self.model.encode(obs[1:], task)
-            td_targets = self._td_target(next_z, reward, task, prev_actions=action if self.cfg.obs == 'ddlp' else None)
+            td_targets = self._td_target(next_z, reward, task, prev_actions=next_action if self.cfg.obs == 'ddlp' else None)
 
         # Prepare for update
         self.optim.zero_grad(set_to_none=True)
@@ -314,7 +325,7 @@ class TDMPC2:
         if self.cfg.obs == 'ddlp':
             zs = [obs[0]]
             for t in range(self.cfg.horizon):
-                zs.append(TensorDict(self.model.next(zs[-1], action[t], task), batch_size=obs[0].batch_size))
+                zs.append(TensorDict(self.model.next(zs[-1], next_action[t], task), batch_size=obs[0].batch_size))
 
             with set_lazy_legacy(False):
                 zs = torch.stack(zs, dim=0)
@@ -326,7 +337,7 @@ class TDMPC2:
             zs = torch.empty(self.cfg.horizon + 1, self.cfg.batch_size, *z_dim, device=self.device)
             zs[0] = z
             for t in range(self.cfg.horizon):
-                z = self.model.next(z, action[t], task)
+                z = self.model.next(z, next_action[t], task)
                 consistency_loss += F.mse_loss(z, next_z[t]) * self.cfg.rho ** t
                 zs[t + 1] = z
 
@@ -335,10 +346,10 @@ class TDMPC2:
 
         batch_shape = _zs.size()[:2]
         _zs = _zs.flatten(end_dim=1)
-        action = action.flatten(end_dim=1)
-        qs = self.model.Q(_zs, action, task, return_type='all')
+        _as = next_action.flatten(end_dim=1)
+        qs = self.model.Q(_zs, _as, task, return_type='all')
         qs = qs.view(qs.size()[0], *batch_shape, -1)
-        reward_preds = self.model.reward(_zs, action, task).view(*batch_shape, -1)
+        reward_preds = self.model.reward(_zs, _as, task).view(*batch_shape, -1)
 
         # Compute losses
         reward_loss, value_loss = 0, 0
@@ -361,7 +372,7 @@ class TDMPC2:
         self.optim.step()
 
         # Update policy
-        pi_loss = self.update_pi(zs.detach(), task)
+        pi_loss = self.update_pi(zs.detach(), task, action)
 
         # Update target Q-functions
         self.model.soft_update_target_Q()

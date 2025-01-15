@@ -61,6 +61,7 @@ def train(cfg: dict):
         model = model.to('cuda')
         model = model.eval()
         model.requires_grad_(False)
+        cfg.action_dim = model.action_dim
 
     trainer = trainer_cls(
         cfg=cfg,

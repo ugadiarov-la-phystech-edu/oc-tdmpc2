@@ -94,7 +94,11 @@ features: [ 2048, 2048, 2048 ]
 slot_extractor_checkpoint_path: ???
 slot_extractor_device: cuda
 
+# oc world model
+use_interactions: true
+
 # ddlp
+world_model_type: ???
 eit_masking: true
 eit_embed_dim: 64
 eit_h_dim: 256
