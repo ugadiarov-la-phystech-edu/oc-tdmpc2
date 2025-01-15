@@ -76,7 +76,7 @@ class OnlineTrainer(Trainer):
             obs = obs.unsqueeze(0).cpu()
         if action is None:
             if self.cfg.obs == 'ddlp':
-                action = torch.full(self.env.get_actions().shape, float('nan'), dtype=torch.float32)
+                action = torch.full(self.env.get_actions().shape, 0, dtype=torch.float32)
             else:
                 action = torch.full_like(self.env.rand_act(), float('nan'))
 
