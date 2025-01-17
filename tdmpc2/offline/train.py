@@ -112,7 +112,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(reward_model.parameters(), lr=args.lr,)
     for epoch in itertools.count():
         train_loss = run(reward_model, train_dataloader, args.device, is_train=True)
-        val_loss = run(reward_model, train_dataloader, args.device, is_train=False)
+        val_loss = run(reward_model, val_dataloader, args.device, is_train=False)
         if args.wandb_project:
             if wandb.run is None:
                 wandb.init(project=args.wandb_project, group=args.wandb_group, name=args.wandb_run, resume='never',
