@@ -2494,7 +2494,7 @@ class ObjectDynamicsDLP(nn.Module):
 
     def forward(self, x, action=None, deterministic=False, bg_masks_from_fg=False, x_prior=None, warmup=False,
                 noisy=False,
-                forward_dyn=True, train_enc_prior=True, num_static_frames=4):
+                forward_dyn=True, train_enc_prior=True, num_static_frames=4, predict_next=True):
         # x: [bs, T + 1, ...]
         batch_size, timestep_horizon = x.size(0), x.size(1)
         # timestep_horizon = timestep_horizon - 1
@@ -2555,7 +2555,7 @@ class ObjectDynamicsDLP(nn.Module):
         rec = bg_mask * bg + dec_objects_trans
 
         # dynamics - all but the last timestep
-        if forward_dyn:
+        if predict_next and forward_dyn:
             # forward PINT
             z_v = z.view(batch_size, timestep_horizon, *z.shape[1:])[:, :-1]
             z_scale_v = z_scale.view(batch_size, timestep_horizon, *z_scale.shape[1:])[:, :-1]
