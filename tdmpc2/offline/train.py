@@ -105,7 +105,7 @@ if __name__ == '__main__':
     parser.add_argument('--latent_dim', type=int, default=512)
     parser.add_argument('--use_interactions', type=str2bool, default=True)
     parser.add_argument('--use_background', type=str2bool, required=True)
-    parser.add_argument('--eit_use_masking', type=str2bool, required=True)
+    parser.add_argument('--eit_use_masking', type=str2bool, default=True)
     parser.add_argument('--lr', type=float, required=True)
     parser.add_argument('--wandb_project', type=str, default=None)
     parser.add_argument('--wandb_group', type=str, default=None)
