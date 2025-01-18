@@ -1,5 +1,6 @@
 import argparse
 import itertools
+from typing import Tuple
 
 import torch
 import wandb
@@ -10,6 +11,7 @@ from tqdm import tqdm
 
 from common.layers import mlp
 from common.world_model import OCRewardModel
+from dlp.policies import EITCritic
 from offline.dataset import DDLPFeaturesDataset, DatasetItem
 
 
@@ -30,7 +32,7 @@ def create_dataloader(dataset_path, split, batch_size, num_workers):
     return dataloader
 
 
-class RewardModel(nn.Module):
+class GNNRewardModel(nn.Module):
     def __init__(self, config, background_dim=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = config
@@ -48,6 +50,20 @@ class RewardModel(nn.Module):
             x = x.update(fg=torch.cat([x.fg, background_particle.unsqueeze(1)], dim=1))
 
         return self.reward_model(x.fg, x.action)
+
+
+class EITRewardModel(EITCritic):
+    def __init__(self, cfg, particle_fdim, action_dim, background_fdim):
+        super().__init__(cfg, particle_fdim, action_dim, 1, 1, background_fdim)
+        self.use_background = cfg.eit_use_background
+
+    def forward(self, x: DatasetItem) -> Tuple[torch.Tensor, ...]:
+        if self.use_background:
+            bg = x.bg
+        else:
+            bg = None
+
+        return super().forward(x.fg, x.action, bg)[0]
 
 
 def run(reward_model: nn.Module, dataloader: DataLoader, device: str, is_train: bool = True):
@@ -89,10 +105,12 @@ if __name__ == '__main__':
     parser.add_argument('--latent_dim', type=int, default=512)
     parser.add_argument('--use_interactions', type=str2bool, default=True)
     parser.add_argument('--use_background', type=str2bool, required=True)
+    parser.add_argument('--eit_use_masking', type=str2bool, required=True)
     parser.add_argument('--lr', type=float, required=True)
     parser.add_argument('--wandb_project', type=str, default=None)
     parser.add_argument('--wandb_group', type=str, default=None)
     parser.add_argument('--wandb_run', type=str, default=None)
+    parser.add_argument('--model_type', type=str, choices=['gnn', 'eit'], required=True)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision('medium')
@@ -102,13 +120,29 @@ if __name__ == '__main__':
     sample = next(iter(train_dataloader))
     n_slots, slot_dim = sample.fg[0].size()
     action_dim = sample.action[0].size()[0]
+    background_fdim = sample.bg[0].size()[0]
 
     config = OmegaConf.create(
         {'latent_dim': args.latent_dim, 'use_interactions': args.use_interactions, 'num_bins': 1, 'n_slots': n_slots,
          'slot_dim': slot_dim, 'action_dim': action_dim})
 
     background_dim = sample.bg[0].size()[0] if args.use_background else None
-    reward_model = RewardModel(config, background_dim).to(args.device)
+    if args.model_type == 'gnn':
+        reward_model = GNNRewardModel(config, background_dim)
+    elif args.model_type == 'eit':
+        config['eit_embed_dim'] = 64
+        config['eit_h_dim'] = 256
+        config['eit_n_head'] = 8
+        config['eit_dropout'] = 0
+        config['eit_action_particle'] = True
+        config['eit_masking'] = True
+        config['eit_use_background'] = args.use_background
+        reward_model = EITRewardModel(config, slot_dim, action_dim, background_fdim)
+    else:
+        raise ValueError(f'Unexpected model type: {args.model_type}')
+
+    reward_model = reward_model.to(args.device)
+
     optimizer = torch.optim.Adam(reward_model.parameters(), lr=args.lr,)
     for epoch in itertools.count():
         train_loss = run(reward_model, train_dataloader, args.device, is_train=True)
@@ -116,7 +150,7 @@ if __name__ == '__main__':
         if args.wandb_project:
             if wandb.run is None:
                 wandb.init(project=args.wandb_project, group=args.wandb_group, name=args.wandb_run, resume='never',
-                           config=vars(args))
+                           config={**vars(args), **OmegaConf.to_container(config)})
 
             wandb.log({'epoch': epoch, 'train/loss': train_loss, 'val/loss': val_loss})
 
