@@ -9,10 +9,11 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from common.layers import mlp
+from common import layers
+from common.layers import mlp, enc
 from common.world_model import OCRewardModel
 from dlp.policies import EITCritic
-from offline.dataset import DDLPFeaturesDataset, DatasetItem
+from offline.dataset import DDLPFeaturesDataset, DatasetItem, EpisodesDataset
 
 
 def str2bool(v):
@@ -26,8 +27,14 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def create_dataloader(dataset_path, split, batch_size, num_workers):
-    dataset = DDLPFeaturesDataset(dataset_path, split)
+def create_dataloader(dataset_type, dataset_path, split, batch_size, num_workers, **kwargs):
+    if dataset_type == 'ddlp':
+        dataset = DDLPFeaturesDataset(dataset_path, split)
+    elif dataset_type == 'rgb':
+        dataset = EpisodesDataset(dataset_path, split, **kwargs)
+    else:
+        raise ValueError(f'Unexpected dataset type: {dataset_type}')
+
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=split == 'train', num_workers=num_workers)
     return dataloader
 
@@ -64,6 +71,20 @@ class EITRewardModel(EITCritic):
             bg = None
 
         return super().forward(x.fg, x.action, bg)[0]
+
+
+class MonolithicRewardModel(nn.Module):
+    def __init__(self, cfg, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cfg = cfg
+        self._encoder = enc(cfg)
+        latent_dim = self._encoder[cfg.obs](torch.zeros(1, *cfg.obs_shape[cfg.obs], dtype=torch.float32)).size()[1]
+        self._reward = layers.mlp(latent_dim + cfg.action_dim + cfg.task_dim, 2 * [cfg.mlp_dim], 1)
+
+    def forward(self, x: DatasetItem):
+        obs = x.img.flatten(start_dim=1, end_dim=2)
+        action = x.action[:, 0]
+        return self._reward(torch.cat([self._encoder[self.cfg.obs](obs), action], dim=-1))
 
 
 def run(reward_model: nn.Module, dataloader: DataLoader, device: str, is_train: bool = True):
@@ -110,22 +131,37 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_project', type=str, default=None)
     parser.add_argument('--wandb_group', type=str, default=None)
     parser.add_argument('--wandb_run', type=str, default=None)
-    parser.add_argument('--model_type', type=str, choices=['gnn', 'eit'], required=True)
+    parser.add_argument('--model_type', type=str, choices=['gnn', 'eit', 'monolithic'], required=True)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision('medium')
-    train_dataloader = create_dataloader(args.dataset_path, 'train', args.batch_size, args.num_workers)
-    val_dataloader = create_dataloader(args.dataset_path, 'val', args.batch_size, args.num_workers)
+    if args.model_type == 'monolithic':
+        dataset_type = 'rgb'
+        kwargs = dict(sample_length=3, res=64, episodic_on_train=False, episodic_on_val=False, use_actions=True,
+                      duplicate_on_episode_start=True)
+    else:
+        dataset_type = 'ddlp'
+        kwargs = {}
+
+    train_dataloader = create_dataloader(dataset_type, args.dataset_path, 'train', args.batch_size, args.num_workers,
+                                         **kwargs)
+    val_dataloader = create_dataloader(dataset_type, args.dataset_path, 'val', args.batch_size, args.num_workers,
+                                       **kwargs)
+
 
     sample = next(iter(train_dataloader))
-    n_slots, slot_dim = sample.fg[0].size()
-    action_dim = sample.action[0].size()[0]
-    background_fdim = sample.bg[0].size()[0]
+    action_dim = sample.action[0].size()[-1]
+    config = {'latent_dim': args.latent_dim, 'action_dim': action_dim}
+    if args.model_type == 'monolithic':
+        num_frames = sample.img[0].size()[0]
+        config.update({'obs': 'rgb', 'obs_shape': {'rgb': (3 * num_frames, 64, 64)}, 'task_dim': 0, 'num_enc_layers': 2, 'enc_dim': 256,
+                       'num_channels': 32, 'simnorm_dim': 8, 'mlp_dim': 512})
+    else:
+        n_slots, slot_dim = sample.fg[0].size()
+        config.update({'use_interactions': args.use_interactions, 'num_bins': 1, 'n_slots': n_slots,
+         'slot_dim': slot_dim,})
 
-    config = OmegaConf.create(
-        {'latent_dim': args.latent_dim, 'use_interactions': args.use_interactions, 'num_bins': 1, 'n_slots': n_slots,
-         'slot_dim': slot_dim, 'action_dim': action_dim})
-
+    config = OmegaConf.create(config)
     background_dim = sample.bg[0].size()[0] if args.use_background else None
     if args.model_type == 'gnn':
         reward_model = GNNRewardModel(config, background_dim)
@@ -137,7 +173,9 @@ if __name__ == '__main__':
         config['eit_action_particle'] = True
         config['eit_masking'] = True
         config['eit_use_background'] = args.use_background
-        reward_model = EITRewardModel(config, slot_dim, action_dim, background_fdim)
+        reward_model = EITRewardModel(config, slot_dim, action_dim, background_dim)
+    elif args.model_type == 'monolithic':
+        reward_model = MonolithicRewardModel(config)
     else:
         raise ValueError(f'Unexpected model type: {args.model_type}')
 
