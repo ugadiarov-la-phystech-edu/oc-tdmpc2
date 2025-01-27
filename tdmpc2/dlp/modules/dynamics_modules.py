@@ -471,9 +471,9 @@ class DynamicsDLP(nn.Module):
             z_depth_v = z_depth[:, -block_size:].reshape(-1, *z_depth.shape[2:])
             z_features_v = z_features[:, -block_size:].reshape(-1, *z_features.shape[2:])
             z_bg_features_v = z_bg_features[:, -block_size:].reshape(-1, *z_bg_features.shape[2:])
-            action = action[:, -block_size:].reshape(-1, *action.shape[2:])
+            step_action = action[:, k: k + block_size].reshape(-1, *action.shape[2:])
             particle_projection = self.particle_projection(z_v, z_scale_v, z_obj_on_v, z_depth_v, z_features_v,
-                                                           z_bg_features_v, action=action)
+                                                           z_bg_features_v, action=step_action)
             # [bs * T, n_particles + 1 + 1, projection_dim]
             particle_proj_int = particle_projection
 
@@ -552,7 +552,7 @@ class DynamicsDLP(nn.Module):
 
         return z, z_scale, z_obj_on, z_depth, z_features, z_bg_features
 
-    def forward(self, z, z_scale, z_obj_on, z_depth, z_features, z_bg_features, action=None):
+    def forward(self, z, z_scale, z_obj_on, z_depth, z_features, z_bg_features, action=None, deterministic=False):
         # forward dynamics
         # z, z_scale: [bs, T, n_particles, 2]
         # z_depth, z_obj_on: [bs, T, n_particles, 1]
@@ -614,12 +614,29 @@ class DynamicsDLP(nn.Module):
         logvar_bg_features = particle_decoder_out['logvar_bg_features']
         logvar_bg_features = logvar_bg_features.view(bs, timestep_horizon, *logvar_bg_features.shape[1:])
 
+        beta_dist = Beta(obj_on_a, obj_on_b)
         if self.predict_delta:
             mu = z + mu
             mu_scale = z_scale + mu_scale
             mu_depth = z_depth + mu_depth
             mu_features = z_features + mu_features
             mu_bg_features = z_bg_features + mu_bg_features
+            beta_dist = Beta(obj_on_a, obj_on_b)
+
+        if deterministic:
+            new_z = mu
+            new_z_depth = mu_depth
+            new_z_scale = mu_scale
+            new_z_features = mu_features
+            new_z_bg_features = mu_bg_features
+            new_z_obj_on = beta_dist.mean
+        else:
+            new_z = reparameterize(mu, logvar)
+            new_z_depth = reparameterize(mu_depth, logvar_depth)
+            new_z_scale = reparameterize(mu_scale, logvar_scale)
+            new_z_features = reparameterize(mu_features, logvar_features)
+            new_z_bg_features = reparameterize(mu_bg_features, logvar_bg_features)
+            new_z_obj_on = beta_dist.sample()
 
         output_dict = {}
 
@@ -640,5 +657,12 @@ class DynamicsDLP(nn.Module):
 
         output_dict['mu_bg_features'] = mu_bg_features
         output_dict['logvar_bg_features'] = logvar_bg_features
+
+        output_dict['z'] = new_z
+        output_dict['z_scale'] = new_z_scale
+        output_dict['z_obj_on'] = new_z_obj_on.reshape_as(z_obj_on)
+        output_dict['z_depth'] = new_z_depth
+        output_dict['z_features'] = new_z_features
+        output_dict['z_bg_features'] = new_z_bg_features
 
         return output_dict

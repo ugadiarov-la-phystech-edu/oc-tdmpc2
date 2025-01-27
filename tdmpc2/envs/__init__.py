@@ -7,7 +7,7 @@ import gym
 import isaacgym
 import torch
 
-from envs.wrappers.ddlp import DDLPExtractorWrapper
+from envs.wrappers.ddlp import DynamicDDLPExtractorWrapper, StaticDDLPExtractorWrapper
 from envs.wrappers.multitask import MultitaskWrapper
 from envs.wrappers.pixels import PixelWrapper
 from envs.wrappers.slots import SlotExtractorWrapper
@@ -116,8 +116,14 @@ def make_env(cfg, **kwargs):
         with open(config_path, 'r') as file_obj:
             config = json.load(file_obj)
 
-        env = DDLPExtractorWrapper(env, ddlp, device='cuda', num_static_frames=config['num_static_frames'],
-                                   train_enc_prior=config['train_enc_prior'])
+        if cfg.transition_model_type == 'ddlp':
+            env = DynamicDDLPExtractorWrapper(env, ddlp, device='cuda', num_static_frames=config['num_static_frames'],
+                                              train_enc_prior=config['train_enc_prior'])
+        elif cfg.transition_model_type == 'gnn':
+            env = StaticDDLPExtractorWrapper(env, ddlp, device='cuda', num_static_frames=config['num_static_frames'],
+                                             train_enc_prior=config['train_enc_prior'], num_frames=cfg.num_frames)
+        else:
+            assert False
 
     if not cfg.multitask:
         env = TensorWrapper(env)

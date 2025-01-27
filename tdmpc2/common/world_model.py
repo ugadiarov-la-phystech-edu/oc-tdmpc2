@@ -180,11 +180,15 @@ class WorldModel(nn.Module):
 
 
 class OCDynamicsModel(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg, **cfg_overrides):
         super().__init__()
         self.cfg = cfg
-        self.gnn = layers.GNN(input_dim=self.cfg.slot_dim, hidden_dim=self.cfg.latent_dim,
-                              action_dim=self.cfg.action_dim, num_objects=self.cfg.n_slots, ignore_action=False,
+        slot_dim = cfg_overrides.get('slot_dim', self.cfg.slot_dim)
+        n_slots = cfg_overrides.get('n_slots', self.cfg.n_slots)
+        action_dim = cfg_overrides.get('action_dim', self.cfg.action_dim)
+        output_dim = cfg_overrides.get('output_dim', None)
+        self.gnn = layers.GNN(input_dim=slot_dim, hidden_dim=self.cfg.latent_dim, output_dim=output_dim,
+                              action_dim=action_dim, num_objects=n_slots, ignore_action=False,
                               copy_action=True, edge_actions=True, use_interactions=self.cfg.use_interactions)
 
     def forward(self, slots, action):
@@ -560,16 +564,31 @@ class DDLPGNNWorldModel(nn.Module):
         assert not cfg.multitask, f'Multitasking is not implemented for slot-based observations.'
 
         self._encoder = layers.enc(cfg)
-        self._dynamics = nn.Identity()
-        slot_dim = self.ddlp_model.get_dlp_features_dim() * self.ddlp_model.timestep_horizon
-        n_slots = self.ddlp_model.n_kp_enc
-        if self.cfg.eit_use_background:
-            n_slots += 1
-            self.background_projection = mlp(
-                self.ddlp_model.get_dlp_background_dim() * self.ddlp_model.timestep_horizon, [], slot_dim
-            )
 
-        action_dim = self.cfg.action_dim * self.ddlp_model.timestep_horizon
+        if cfg.transition_model_type == 'ddlp':
+            self._dynamics = nn.Identity()
+            action_dim = self.cfg.action_dim * self.ddlp_model.timestep_horizon
+            slot_dim = self.ddlp_model.get_dlp_features_dim() * self.ddlp_model.timestep_horizon
+            n_slots = self.ddlp_model.n_kp_enc
+            if self.cfg.eit_use_background:
+                n_slots += 1
+                self.background_projection = mlp(
+                    self.ddlp_model.get_dlp_background_dim() * self.ddlp_model.timestep_horizon, [], slot_dim
+                )
+        elif self.cfg.transition_model_type == 'gnn':
+            slot_dim = self.ddlp_model.get_dlp_features_dim() * self.cfg.num_frames
+            n_slots = self.ddlp_model.n_kp_enc
+            if self.cfg.eit_use_background:
+                assert not self.cfg.eit_use_background, f'Usage of background in gnn model is not implemented!'
+                n_slots += 1
+                self.background_projection = mlp(
+                    self.ddlp_model.get_dlp_background_dim() * self.cfg.num_frames, [], slot_dim
+                )
+            self._dynamics = OCDynamicsModel(self.cfg, slot_dim=slot_dim, n_slots=n_slots, output_dim=self.ddlp_model.get_dlp_features_dim())
+            action_dim = self.cfg.action_dim
+        else:
+            raise ValueError(f'Unexpected transition model type: {self.cfg.transition_model_type}')
+
         self._reward = OCRewardModel(self.cfg, slot_dim=slot_dim, n_slots=n_slots, action_dim=action_dim)
         self._pi = OCPolicy(self.cfg, slot_dim=slot_dim, n_slots=n_slots)
         self._Qs = nn.ModuleList(
@@ -642,23 +661,36 @@ class DDLPGNNWorldModel(nn.Module):
         """
         Predicts the next latent state given the current latent state and action.
         """
-        if self.cfg.multitask:
-            z = self.task_emb(z, task)
+        if self.cfg.transition_model_type == 'ddlp':
+            if self.cfg.multitask:
+                z = self.task_emb(z, task)
 
-        z_fg = z['fg']
-        z_kp = z_fg[..., :2]
-        z_scale = z_fg[..., 2:4]
-        z_depth = z_fg[..., 3:4]
-        z_features = z_fg[..., 5:-1]
-        z_obj_on = z_fg[..., -1:]
-        z_bg = z['bg']
+            z_fg = z['fg']
+            z_kp = z_fg[..., :2]
+            z_scale = z_fg[..., 2:4]
+            z_depth = z_fg[..., 3:4]
+            z_features = z_fg[..., 5:-1]
+            z_obj_on = z_fg[..., -1:]
+            z_bg = z['bg']
 
-        dyn_out = self.ddlp_model.dyn_module(z_kp, z_scale, z_obj_on, z_depth, z_features, z_bg, a)
-        dyn_obj_on_beta_dist = torch.distributions.Beta(dyn_out['obj_on_a'], dyn_out['obj_on_b'])
-        dyn_obj_on = dyn_obj_on_beta_dist.mean
-        next_z_fg = self.ddlp_model.get_dlp_rep(dyn_out['mu'], dyn_out['mu_scale'], dyn_out['mu_depth'], dyn_out['mu_features'], dyn_obj_on.unsqueeze(-1))
+            dyn_out = self.ddlp_model.dyn_module(z_kp, z_scale, z_obj_on, z_depth, z_features, z_bg, a)
+            dyn_obj_on_beta_dist = torch.distributions.Beta(dyn_out['obj_on_a'], dyn_out['obj_on_b'])
+            dyn_obj_on = dyn_obj_on_beta_dist.mean
+            next_z_fg = self.ddlp_model.get_dlp_rep(dyn_out['mu'], dyn_out['mu_scale'], dyn_out['mu_depth'], dyn_out['mu_features'], dyn_obj_on.unsqueeze(-1))
 
-        return {'fg': next_z_fg, 'bg': dyn_out['mu_bg_features']}
+            return {'fg': next_z_fg, 'bg': dyn_out['mu_bg_features']}
+        elif self.cfg.transition_model_type == 'gnn':
+            # z.shape -> batch_size, timestep_horizon, n_particles, features_dim
+            x = z['fg'].permute((0, 2, 1, 3)).flatten(start_dim=-2)
+            if self.cfg.multitask:
+                x = self.task_emb(x, task)
+            next_z = self._dynamics(x, a)
+            result = z.copy()
+            result['fg'] = torch.cat([result['fg'][:, :-1], next_z.unsqueeze(1)], dim=1)
+
+            return result
+        else:
+            assert False
 
     def reward(self, z, a, task):
         """
@@ -670,10 +702,13 @@ class DDLPGNNWorldModel(nn.Module):
             self.background_projection(z['bg'].flatten(start_dim=-2))
             x = torch.cat([x, self.background_projection(z['bg'].flatten(start_dim=-2)).unsqueeze(1)], dim=1)
 
-        action = a.flatten(start_dim=-2)
+        if len(a.size()) == 3:
+            # shape -> batch_size, timestep_horizon, action_dim
+            a = a.flatten(start_dim=-2)
+
         if self.cfg.multitask:
             x = self.task_emb(x, task)
-        return self._reward(x, action)
+        return self._reward(x, a)
 
     def pi(self, z, task):
         """
@@ -735,9 +770,12 @@ class DDLPGNNWorldModel(nn.Module):
             prev_actions[:, -1] = a
             a = prev_actions
 
-        action = a.flatten(start_dim=-2)
+        if len(a.size()) == 3:
+            # shape -> batch_size, timestep_horizon, action_dim
+            a = a.flatten(start_dim=-2)
+
         Qs = self._target_Qs if target else self._Qs
-        out = torch.stack([q(x, action) for q in Qs])
+        out = torch.stack([q(x, a) for q in Qs])
 
         if return_type == 'all':
             return out

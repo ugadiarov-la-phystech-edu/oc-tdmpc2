@@ -47,7 +47,7 @@ class OnlineTrainer(Trainer):
             start_time = time()
             while not done:
                 previous_actions = None
-                if self.cfg.obs == 'ddlp':
+                if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type != 'gnn':
                     previous_actions = torch.from_numpy(self.env.get_actions()).to(obs['fg'].device)
 
                 action = self.agent.act(obs, t0=t == 0, eval_mode=True, prev_actions=previous_actions)
@@ -75,7 +75,7 @@ class OnlineTrainer(Trainer):
         else:
             obs = obs.unsqueeze(0).cpu()
         if action is None:
-            if self.cfg.obs == 'ddlp':
+            if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type != 'gnn':
                 action = torch.full(self.env.get_actions().shape, 0, dtype=torch.float32)
             else:
                 action = torch.full_like(self.env.rand_act(), float('nan'))
@@ -123,14 +123,14 @@ class OnlineTrainer(Trainer):
 
             # Collect experience
             if self._step > self.cfg.seed_steps:
-                if self.cfg.obs == 'ddlp':
+                if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type != 'gnn':
                     action = self.agent.act(obs, t0=len(self._tds) == 1, prev_actions=torch.from_numpy(self.env.get_actions()))
                 else:
                     action = self.agent.act(obs, t0=len(self._tds) == 1)
             else:
                 action = self.env.rand_act()
             obs, reward, done, info = self.env.step(action)
-            if self.cfg.obs == 'ddlp':
+            if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type != 'gnn':
                 buffer_action = torch.from_numpy(self.env.get_actions())
             else:
                 buffer_action = action

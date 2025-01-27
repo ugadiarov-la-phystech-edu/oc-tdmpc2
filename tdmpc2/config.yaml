@@ -99,6 +99,7 @@ use_interactions: true
 
 # ddlp
 world_model_type: ???
+transition_model_type: ???
 eit_masking: true
 eit_embed_dim: 64
 eit_h_dim: 256

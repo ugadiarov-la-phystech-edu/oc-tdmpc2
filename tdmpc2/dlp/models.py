@@ -1046,6 +1046,7 @@ class ObjectDLP(nn.Module):
         self.use_tracking = use_tracking
         self.use_correlation_heatmaps = use_correlation_heatmaps and self.use_tracking
         self.enable_enc_attn = enable_enc_attn
+        self.dynamics = False
         assert filtering_heuristic in ['distance', 'variance',
                                        'random', 'none'], f'unknown filtering heuristic: {filtering_heuristic}'
         self.filtering_heuristic = filtering_heuristic
@@ -1657,7 +1658,7 @@ class ObjectDynamicsDLP(nn.Module):
                  timestep_horizon=10, enable_enc_attn=False, use_correlation_heatmaps=True,
                  use_resblock=False, scale_std=0.3, offset_std=0.2, obj_on_alpha=0.1, obj_on_beta=0.1, pint_layers=6,
                  pint_heads=8, pint_dim=256, filtering_heuristic='variance', max_beta_coef=100, action_dim=None,
-                 mu_scale_prior=None):
+                 mu_scale_prior=None, dynamics=True):
         super(ObjectDynamicsDLP, self).__init__()
         """
         cdim: channels of the input image (3...)
@@ -1713,6 +1714,7 @@ class ObjectDynamicsDLP(nn.Module):
         self.pint_layers = pint_layers
         self.pint_heads = pint_heads
         self.pint_dim = pint_dim
+        self.dynamics = dynamics
         assert filtering_heuristic in ['distance', 'variance',
                                        'random', 'none'], f'unknown filtering heuristic: {filtering_heuristic}'
         self.filtering_heuristic = filtering_heuristic
@@ -1746,13 +1748,14 @@ class ObjectDynamicsDLP(nn.Module):
                                use_resblock=self.use_resblock)
 
         # dynamics module
-        max_particles = n_kp_enc + 1  # particle positional bias, +1 for the bg particle
-        pint_inner_dim = self.pint_dim
-        self.dyn_module = DynamicsDLP(learned_feature_dim, self.bg_learned_feature_dim, hidden_dim=pint_inner_dim,
-                                      projection_dim=pint_inner_dim,
-                                      n_head=self.pint_heads, n_layer=self.pint_layers, block_size=timestep_horizon,
-                                      kp_activation=kp_activation, predict_delta=self.predict_delta, max_delta=1.0,
-                                      positional_bias=True, max_particles=max_particles, action_dim=self.action_dim)
+        if self.dynamics:
+            max_particles = n_kp_enc + 1  # particle positional bias, +1 for the bg particle
+            pint_inner_dim = self.pint_dim
+            self.dyn_module = DynamicsDLP(learned_feature_dim, self.bg_learned_feature_dim, hidden_dim=pint_inner_dim,
+                                          projection_dim=pint_inner_dim,
+                                          n_head=self.pint_heads, n_layer=self.pint_layers, block_size=timestep_horizon,
+                                          kp_activation=kp_activation, predict_delta=self.predict_delta, max_delta=1.0,
+                                          positional_bias=True, max_particles=max_particles, action_dim=self.action_dim)
         self.init_weights()
 
     def get_dlp_features_dim(self):
@@ -1767,10 +1770,13 @@ class ObjectDynamicsDLP(nn.Module):
         rep = torch.cat((pixel_xy, scale_xy, depth, features, transparency,), dim=-1)
         return rep
 
-    def get_parameters(self, prior=True, encoder=True, decoder=True, dynamics=True):
+    def get_parameters(self, prior=True, encoder=True, decoder=True, dynamics=None):
         parameters = []
         parameters.extend(self.fg_module.get_parameters(prior, encoder, decoder))
         parameters.extend(self.bg_module.get_parameters(prior, encoder, decoder))
+        if dynamics is None:
+            dynamics = self.dynamics
+
         if dynamics:
             parameters.extend(self.dyn_module.parameters())
         return parameters
@@ -1806,10 +1812,12 @@ class ObjectDynamicsDLP(nn.Module):
         # tracking
         log_str += f'correlation maps for tracking: {self.fg_module.use_correlation_heatmaps}\n'
         # dynamic module
-        log_str += f'pint relative positional bias: {self.dyn_module.particle_transformer.positional_bias}\n'
-        pint_size_dict = calc_model_size(self.dyn_module)
-        pint_n_params = pint_size_dict['n_params']
-        log_str += f'pint trainable parameters: {pint_n_params} ({pint_n_params / (10 ** 6):.4f}M)\n'
+        if self.dynamics:
+            log_str += f'pint relative positional bias: {self.dyn_module.particle_transformer.positional_bias}\n'
+            pint_size_dict = calc_model_size(self.dyn_module)
+            pint_n_params = pint_size_dict['n_params']
+            log_str += f'pint trainable parameters: {pint_n_params} ({pint_n_params / (10 ** 6):.4f}M)\n'
+
         # num parameters and model size
         size_dict = calc_model_size(self)
         size_mb = size_dict['size_mb']
@@ -2015,6 +2023,7 @@ class ObjectDynamicsDLP(nn.Module):
          which are unrolled to the future with PINT, and the predicted particles are then decoded to a sequence
          of RGB images.
         """
+        assert self.dynamics, f'Can sample only from dynamics model, but self.dynamics={self.dynamics}'
         # x: [bs, T, ...]
         # encode-decode
         batch_size, timestep_horizon_all = x.size(0), x.size(1)
@@ -2494,13 +2503,15 @@ class ObjectDynamicsDLP(nn.Module):
 
     def forward(self, x, action=None, deterministic=False, bg_masks_from_fg=False, x_prior=None, warmup=False,
                 noisy=False,
-                forward_dyn=True, train_enc_prior=True, num_static_frames=4):
+                sequential=True, train_enc_prior=True, num_static_frames=4, predict_next=True):
         # x: [bs, T + 1, ...]
-        batch_size, timestep_horizon = x.size(0), x.size(1)
+        batch_size, sequence_length = x.size(0), x.size(1)
+        timestep_horizon = self.timestep_horizon
+        prediction_horizon = sequence_length - timestep_horizon
         # timestep_horizon = timestep_horizon - 1
 
         x_in = x.view(-1, *x.shape[2:])  # [bs * T, ...]
-        if forward_dyn:
+        if sequential:
             # tracking
             fg_dict = self.fg_sequential_opt(x, deterministic=deterministic, x_prior=x_prior, warmup=warmup,
                                              noisy=noisy,
@@ -2555,35 +2566,50 @@ class ObjectDynamicsDLP(nn.Module):
         rec = bg_mask * bg + dec_objects_trans
 
         # dynamics - all but the last timestep
-        if forward_dyn:
+        if predict_next:
             # forward PINT
-            z_v = z.view(batch_size, timestep_horizon, *z.shape[1:])[:, :-1]
-            z_scale_v = z_scale.view(batch_size, timestep_horizon, *z_scale.shape[1:])[:, :-1]
-            z_obj_on_v = z_obj_on.view(batch_size, timestep_horizon, *z_obj_on.shape[1:])[:, :-1]
-            z_depth_v = z_depth.view(batch_size, timestep_horizon, *z_depth.shape[1:])[:, :-1]
-            z_features_v = z_features.view(batch_size, timestep_horizon, *z_features.shape[1:])[:, :-1]
+            z_v = z.view(batch_size, sequence_length, *z.shape[1:])[:, :timestep_horizon]
+            z_scale_v = z_scale.view(batch_size, sequence_length, *z_scale.shape[1:])[:, :timestep_horizon]
+            z_obj_on_v = z_obj_on.view(batch_size, sequence_length, *z_obj_on.shape[1:])[:, :timestep_horizon]
+            z_depth_v = z_depth.view(batch_size, sequence_length, *z_depth.shape[1:])[:, :timestep_horizon]
+            z_features_v = z_features.view(batch_size, sequence_length, *z_features.shape[1:])[:, :timestep_horizon]
             # [bs, T-1, n_kp, attribute/feature_dim]
-            z_bg_features_v = z_bg.view(batch_size, timestep_horizon, *z_bg.shape[1:])[:, :-1]
+            z_bg_features_v = z_bg.view(batch_size, sequence_length, *z_bg.shape[1:])[:, :timestep_horizon]
             # [bs, T-1, bg_learned_feature_dim]
 
-            dyn_out = self.dyn_module(z_v, z_scale_v, z_obj_on_v, z_depth_v, z_features_v, z_bg_features_v, action)
-            mu_dyn = dyn_out['mu']
-            logvar_dyn = dyn_out['logvar']
+            mu_dyn = []
+            logvar_dyn = []
+            mu_features_dyn = []
+            logvar_features_dyn = []
+            obj_on_a_dyn = []
+            obj_on_b_dyn = []
+            mu_depth_dyn = []
+            logvar_depth_dyn = []
+            mu_scale_dyn = []
+            logvar_scale_dyn = []
+            mu_bg_features_dyn = []
+            logvar_bg_features_dyn = []
 
-            mu_features_dyn = dyn_out['mu_features']
-            logvar_features_dyn = dyn_out['logvar_features']
+            for i in range(prediction_horizon):
+                step_action = action[:, i: i + timestep_horizon]
+                dyn_out = self.dyn_module(
+                    z_v, z_scale_v, z_obj_on_v, z_depth_v, z_features_v, z_bg_features_v, step_action
+                )
+                mu_dyn.append(dyn_out['mu'])
+                logvar_dyn.append(dyn_out['logvar'])
+                mu_features_dyn.append(dyn_out['mu_features'])
+                logvar_features_dyn.append(dyn_out['logvar_features'])
+                obj_on_a_dyn.append(dyn_out['obj_on_a'])
+                obj_on_b_dyn.append(dyn_out['obj_on_b'])
+                mu_depth_dyn.append(dyn_out['mu_depth'])
+                logvar_depth_dyn.append(dyn_out['logvar_depth'])
+                mu_scale_dyn.append(dyn_out['mu_scale'])
+                logvar_scale_dyn.append(dyn_out['logvar_scale'])
+                mu_bg_features_dyn.append(dyn_out['mu_bg_features'])
+                logvar_bg_features_dyn.append(dyn_out['logvar_bg_features'])
 
-            obj_on_a_dyn = dyn_out['obj_on_a']
-            obj_on_b_dyn = dyn_out['obj_on_b']
-
-            mu_depth_dyn = dyn_out['mu_depth']
-            logvar_depth_dyn = dyn_out['logvar_depth']
-
-            mu_scale_dyn = dyn_out['mu_scale']
-            logvar_scale_dyn = dyn_out['logvar_scale']
-
-            mu_bg_features_dyn = dyn_out['mu_bg_features']
-            logvar_bg_features_dyn = dyn_out['logvar_bg_features']
+                z_v, z_scale_v, z_obj_on_v, z_depth_v, z_features_v, z_bg_features_v = \
+                    [dyn_out[key] for key in ('z', 'z_scale', 'z_obj_on', 'z_depth', 'z_features', 'z_bg_features')]
         else:
             mu_dyn = None
             logvar_dyn = None
@@ -2695,29 +2721,31 @@ class ObjectDynamicsDLP(nn.Module):
         alpha_masks = model_output['alpha_masks']  # [batch_size, n_kp, 1, h, w]
 
         # dynamics stuff
-        mu_dyn = model_output['mu_dyn']
-        logvar_dyn = model_output['logvar_dyn']
-        mu_features_dyn = model_output['mu_features_dyn']
-        logvar_features_dyn = model_output['logvar_features_dyn']
-        obj_on_a_dyn = model_output['obj_on_a_dyn']
-        obj_on_b_dyn = model_output['obj_on_b_dyn']
-        mu_depth_dyn = model_output['mu_depth_dyn']
-        logvar_depth_dyn = model_output['logvar_depth_dyn']
-        mu_scale_dyn = model_output['mu_scale_dyn']
-        logvar_scale_dyn = model_output['logvar_scale_dyn']
-        mu_bg_features_dyn = model_output['mu_bg_dyn']
-        logvar_bg_features_dyn = model_output['logvar_bg_dyn']
+        if self.dynamics:
+            mu_dyn = model_output['mu_dyn']
+            logvar_dyn = model_output['logvar_dyn']
+            mu_features_dyn = model_output['mu_features_dyn']
+            logvar_features_dyn = model_output['logvar_features_dyn']
+            obj_on_a_dyn = model_output['obj_on_a_dyn']
+            obj_on_b_dyn = model_output['obj_on_b_dyn']
+            mu_depth_dyn = model_output['mu_depth_dyn']
+            logvar_depth_dyn = model_output['logvar_depth_dyn']
+            mu_scale_dyn = model_output['mu_scale_dyn']
+            logvar_scale_dyn = model_output['logvar_scale_dyn']
+            mu_bg_features_dyn = model_output['mu_bg_dyn']
+            logvar_bg_features_dyn = model_output['logvar_bg_dyn']
 
-        batch_size = x.shape[0]
+        batch_size, sequence_length = x.shape[:2]
         timestep_horizon = self.timestep_horizon
+        prediction_horizon = sequence_length - timestep_horizon
         x = x.view(-1, *x.shape[2:])
         static_scale = 1
         dyn_scale = 1
         # discount for future steps
         if dynamic_discount is None:
-            discount = torch.ones(size=(timestep_horizon - num_static + 1,), device=x.device)
+            discount = torch.ones(size=(sequence_length - num_static,), device=x.device)
         else:
-            discount = dynamic_discount[:timestep_horizon - num_static + 1]
+            discount = dynamic_discount[:sequence_length - num_static]
 
         # --- reconstruction error --- #
         if dec_objects_original is not None and warmup:
@@ -2744,9 +2772,9 @@ class ObjectDynamicsDLP(nn.Module):
                 loss_rec_obj = calc_reconstruction_loss(cropped_objects_original, dec_objects_rgb,
                                                         loss_type='mse', reduction='none')
             loss_rec = loss_rec_obj + (0 * rec_x).mean()  # + (0 * rec_x).mean() for distributed training
-            loss_rec = loss_rec.view(batch_size, timestep_horizon + 1, -1)
+            loss_rec = loss_rec.view(batch_size, sequence_length, -1)
             # [batch_size, timestep_horizon + 1, n_kp_enc]
-            loss_rec_0, loss_rec_future = loss_rec.split([num_static, timestep_horizon - num_static + 1], dim=1)
+            loss_rec_0, loss_rec_future = loss_rec.split([num_static, sequence_length - num_static], dim=1)
             loss_rec_future = beta_dyn_rec * discount[None, :, None] * loss_rec_future
             loss_rec = loss_rec_0.sum(dim=(-2, -1)).mean() + loss_rec_future.sum(dim=(-2, -1)).mean()
             # loss_rec = static_scale * loss_rec_0.sum(dim=(-2, -1)).mean() + dyn_scale * loss_rec_future.sum(dim=(-2, -1)).mean()
@@ -2757,9 +2785,9 @@ class ObjectDynamicsDLP(nn.Module):
             else:
                 loss_rec = calc_reconstruction_loss(x, rec_x, loss_type='mse', reduction='none')
 
-            loss_rec = loss_rec.view(batch_size, timestep_horizon + 1, -1)
+            loss_rec = loss_rec.view(batch_size, sequence_length, -1)
             # consider discount
-            loss_rec_0, loss_rec_future = loss_rec.split([num_static, timestep_horizon - num_static + 1], dim=1)
+            loss_rec_0, loss_rec_future = loss_rec.split([num_static, sequence_length - num_static], dim=1)
             loss_rec_future = beta_dyn_rec * discount[None, :, None] * loss_rec_future
             loss_rec = loss_rec_0.sum(dim=(-2, -1)).mean() + loss_rec_future.sum(dim=(-2, -1)).mean()
             # loss_rec = static_scale * loss_rec_0.sum(dim=(-2, -1)).mean() + dyn_scale * loss_rec_future.sum(dim=(-2, -1)).mean()
@@ -2770,31 +2798,31 @@ class ObjectDynamicsDLP(nn.Module):
 
         # --- isolate the first timestep for kl with constant priors --- #
         # let num_static = t, timestep_horizon = T
-        mu_0 = mu.reshape(batch_size, timestep_horizon + 1, *mu.shape[1:])[:, :num_static]  # [bs, t n_kp, 2]
-        logvar_0 = logvar.reshape(batch_size, timestep_horizon + 1, *logvar.shape[1:])[:,
+        mu_0 = mu.reshape(batch_size, sequence_length, *mu.shape[1:])[:, :num_static]  # [bs, t n_kp, 2]
+        logvar_0 = logvar.reshape(batch_size, sequence_length, *logvar.shape[1:])[:,
                    :num_static]  # [bs, t, n_kp, 2]
-        mu_p_0 = mu_p.reshape(batch_size, timestep_horizon + 1, *mu_p.shape[1:])[:,
+        mu_p_0 = mu_p.reshape(batch_size, sequence_length, *mu_p.shape[1:])[:,
                  :num_static]  # [bs, t, n_kp_prior, 2]
-        mu_offset_0 = mu_offset.reshape(batch_size, timestep_horizon + 1, *mu_offset.shape[1:])[:,
+        mu_offset_0 = mu_offset.reshape(batch_size, sequence_length, *mu_offset.shape[1:])[:,
                       :num_static]  # [bs, t, n_kp, 2]
-        logvar_offset_0 = logvar_offset.reshape(batch_size, timestep_horizon + 1, *logvar_offset.shape[1:])[:,
+        logvar_offset_0 = logvar_offset.reshape(batch_size, sequence_length, *logvar_offset.shape[1:])[:,
                           :num_static]
-        mu_depth_0 = mu_depth.reshape(batch_size, timestep_horizon + 1, *mu_depth.shape[1:])[:,
+        mu_depth_0 = mu_depth.reshape(batch_size, sequence_length, *mu_depth.shape[1:])[:,
                      :num_static]  # [bs, n_kp, 1]
-        logvar_depth_0 = logvar_depth.reshape(batch_size, timestep_horizon + 1, *logvar_depth.shape[1:])[:, :num_static]
-        mu_scale_0 = mu_scale.reshape(batch_size, timestep_horizon + 1, *mu_scale.shape[1:])[:,
+        logvar_depth_0 = logvar_depth.reshape(batch_size, sequence_length, *logvar_depth.shape[1:])[:, :num_static]
+        mu_scale_0 = mu_scale.reshape(batch_size, sequence_length, *mu_scale.shape[1:])[:,
                      :num_static]  # [bs, t, n_kp, 2]
-        logvar_scale_0 = logvar_scale.reshape(batch_size, timestep_horizon + 1, *logvar_scale.shape[1:])[:, :num_static]
-        obj_on_a_0 = obj_on_a.reshape(batch_size, timestep_horizon + 1, *obj_on_a.shape[1:])[:,
+        logvar_scale_0 = logvar_scale.reshape(batch_size, sequence_length, *logvar_scale.shape[1:])[:, :num_static]
+        obj_on_a_0 = obj_on_a.reshape(batch_size, sequence_length, *obj_on_a.shape[1:])[:,
                      :num_static]  # [bs, t, n_kp]
-        obj_on_b_0 = obj_on_b.reshape(batch_size, timestep_horizon + 1, *obj_on_b.shape[1:])[:,
+        obj_on_b_0 = obj_on_b.reshape(batch_size, sequence_length, *obj_on_b.shape[1:])[:,
                      :num_static]  # [bs, t, n_kp]
-        mu_features_0 = mu_features.reshape(batch_size, timestep_horizon + 1, *mu_features.shape[1:])[:, :num_static]
-        logvar_features_0 = logvar_features.reshape(batch_size, timestep_horizon + 1, *logvar_features.shape[1:])[:,
+        mu_features_0 = mu_features.reshape(batch_size, sequence_length, *mu_features.shape[1:])[:, :num_static]
+        logvar_features_0 = logvar_features.reshape(batch_size, sequence_length, *logvar_features.shape[1:])[:,
                             :num_static]
         # mu/logvar_features_0: [bs, n_kp, feat_dim]
-        mu_bg_0 = mu_bg.reshape(batch_size, timestep_horizon + 1, *mu_bg.shape[1:])[:, :num_static]  # [bs, t, feat_dim]
-        logvar_bg_0 = logvar_bg.reshape(batch_size, timestep_horizon + 1, *logvar_bg.shape[1:])[:, :num_static]
+        mu_bg_0 = mu_bg.reshape(batch_size, sequence_length, *mu_bg.shape[1:])[:, :num_static]  # [bs, t, feat_dim]
+        logvar_bg_0 = logvar_bg.reshape(batch_size, sequence_length, *logvar_bg.shape[1:])[:, :num_static]
         # note: bg latent dim = a single particle's latent dim
 
         # --- end isolate the first timestep for kl with constant priors --- #
@@ -2869,87 +2897,99 @@ class ObjectDynamicsDLP(nn.Module):
         # --- kl-divergence for t >= tau --- #
         # dynamics
         # transparency
-        if beta_dyn > 0:
-            obj_on_a_post = obj_on_a.reshape(batch_size, timestep_horizon + 1, *obj_on_a.shape[1:])[:, num_static:]
-            obj_on_b_post = obj_on_b.reshape(batch_size, timestep_horizon + 1, *obj_on_b.shape[1:])[:, num_static:]
+        if self.dynamics and beta_dyn > 0:
+            discount = discount.unfold(0, timestep_horizon - num_static + 1, 1)
+            # shapes: batch_size, prediction_horizon, timestep_horizon + 1 - num_static, *
+            obj_on_a_post = obj_on_a.reshape(batch_size, sequence_length, *obj_on_a.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            obj_on_b_post = obj_on_b.reshape(batch_size, sequence_length, *obj_on_b.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            obj_on_a_dyn = torch.stack(obj_on_a_dyn).movedim(0, 1)[:, :, num_static - 1:]
+            obj_on_b_dyn = torch.stack(obj_on_b_dyn).movedim(0, 1)[:, :, num_static - 1:]
 
-            obj_on_a_post = obj_on_a_post.reshape(-1, *obj_on_a_post.shape[2:])
-            obj_on_b_post = obj_on_b_post.reshape(-1, *obj_on_b_post.shape[2:])
-            obj_on_a_dyn = obj_on_a_dyn[:, num_static - 1:].reshape(-1, *obj_on_a_dyn.shape[2:])
-            obj_on_b_dyn = obj_on_b_dyn[:, num_static - 1:].reshape(-1, *obj_on_b_dyn.shape[2:])
-
-            loss_kl_obj_on_dyn = calc_kl_beta_dist(obj_on_a_post, obj_on_b_post,
-                                                   obj_on_a_dyn, obj_on_b_dyn, balance=balance).sum(-1)
-            loss_kl_obj_on_dyn = loss_kl_obj_on_dyn.reshape(batch_size, -1)
+            loss_kl_obj_on_dyn = calc_kl_beta_dist(
+                obj_on_a_post.flatten(end_dim=1),
+                obj_on_b_post.flatten(end_dim=1),
+                obj_on_a_dyn.flatten(end_dim=1),
+                obj_on_b_dyn.flatten(end_dim=1),
+                balance=balance).sum(-1)
+            loss_kl_obj_on_dyn = loss_kl_obj_on_dyn.reshape(batch_size, prediction_horizon, -1)
             loss_kl_obj_on_dyn = (loss_kl_obj_on_dyn * discount[None, :]).sum(-1).mean()
 
             # position
-            mu_dyn_post_offset = mu_tot.reshape(batch_size, timestep_horizon + 1, *mu_tot.shape[1:])[:, num_static:]
-            logvar_dyn_post_offset = logvar_tot.reshape(batch_size, timestep_horizon + 1, *logvar_tot.shape[1:])[:,
-                                     num_static:]
-            loss_kl_kp_dyn_offset = calc_kl(logvar_dyn_post_offset.reshape(-1, logvar_dyn_post_offset.shape[-1]),
-                                            mu_dyn_post_offset.reshape(-1, mu_dyn_post_offset.shape[-1]),
-                                            mu_o=mu_dyn[:, num_static - 1:].reshape(-1, mu_dyn.shape[-1]),
-                                            logvar_o=logvar_dyn[:, num_static - 1:].reshape(-1, logvar_dyn.shape[-1]),
-                                            reduce='none',
-                                            balance=balance)
+            mu_dyn_post_offset = mu_tot.reshape(batch_size, sequence_length, *mu_tot.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            logvar_dyn_post_offset = logvar_tot.reshape(batch_size, sequence_length, *logvar_tot.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            loss_kl_kp_dyn_offset = calc_kl(
+                logvar_dyn_post_offset.flatten(end_dim=-2),
+                mu_dyn_post_offset.flatten(end_dim=-2),
+                mu_o=torch.stack(mu_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                logvar_o=torch.stack(logvar_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                reduce='none',
+                balance=balance)
             loss_kl_kp_dyn = loss_kl_kp_dyn_offset
-            loss_kl_kp_dyn = (loss_kl_kp_dyn.view(batch_size, -1, self.n_kp_enc)).sum(-1)
+            loss_kl_kp_dyn = (loss_kl_kp_dyn.view(batch_size, prediction_horizon, -1, self.n_kp_enc)).sum(-1)
             loss_kl_kp_dyn = (loss_kl_kp_dyn * discount[None, :]).sum(-1).mean()
 
             # scale
-            mu_scale_dyn_post = mu_scale.reshape(batch_size, timestep_horizon + 1, *mu_scale.shape[1:])[:, num_static:]
-            logvar_scale_dyn_post = logvar_scale.reshape(batch_size, timestep_horizon + 1, *logvar_scale.shape[1:])[:,
-                                    num_static:]
-            loss_kl_scale_dyn = calc_kl(logvar_scale_dyn_post.reshape(-1, logvar_scale_dyn_post.shape[-1]),
-                                        mu_scale_dyn_post.reshape(-1, mu_scale_dyn_post.shape[-1]),
-                                        mu_o=mu_scale_dyn[:, num_static - 1:].reshape(-1, mu_scale_dyn.shape[-1]),
-                                        logvar_o=logvar_scale_dyn[:, num_static - 1:].reshape(-1,
-                                                                                              logvar_scale_dyn.shape[-1]),
-                                        reduce='none', balance=balance)
-            loss_kl_scale_dyn = (loss_kl_scale_dyn.view(batch_size, -1, self.n_kp_enc)).sum(-1)
+            mu_scale_dyn_post = mu_scale.reshape(batch_size, sequence_length, *mu_scale.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            logvar_scale_dyn_post = logvar_scale.reshape(batch_size, sequence_length, *logvar_scale.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            loss_kl_scale_dyn = calc_kl(
+                logvar_scale_dyn_post.flatten(end_dim=-2),
+                mu_scale_dyn_post.flatten(end_dim=-2),
+                mu_o=torch.stack(mu_scale_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                logvar_o=torch.stack(logvar_scale_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                reduce='none',
+                balance=balance)
+            loss_kl_scale_dyn = (loss_kl_scale_dyn.view(batch_size, prediction_horizon, -1, self.n_kp_enc)).sum(-1)
             loss_kl_scale_dyn = (loss_kl_scale_dyn * discount[None, :]).sum(-1).mean()
 
             # depth
-            mu_depth_dyn_post = mu_depth.reshape(batch_size, timestep_horizon + 1, *mu_depth.shape[1:])[:, num_static:]
-            logvar_depth_dyn_post = logvar_depth.reshape(batch_size, timestep_horizon + 1, *logvar_depth.shape[1:])[:,
-                                    num_static:]
-            loss_kl_depth_dyn = calc_kl(logvar_depth_dyn_post.reshape(-1, logvar_depth_dyn_post.shape[-1]),
-                                        mu_depth_dyn_post.reshape(-1, mu_depth_dyn_post.shape[-1]),
-                                        mu_o=mu_depth_dyn[:, num_static - 1:].reshape(-1, mu_depth_dyn.shape[-1]),
-                                        logvar_o=logvar_depth_dyn[:, num_static - 1:].reshape(-1,
-                                                                                              logvar_depth_dyn.shape[-1]),
-                                        reduce='none', balance=balance)
-            loss_kl_depth_dyn = (loss_kl_depth_dyn.view(batch_size, -1, self.n_kp_enc)).sum(-1)
+            mu_depth_dyn_post = mu_depth.reshape(batch_size, sequence_length, *mu_depth.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            logvar_depth_dyn_post = logvar_depth.reshape(batch_size, sequence_length, *logvar_depth.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            loss_kl_depth_dyn = calc_kl(
+                logvar_depth_dyn_post.flatten(end_dim=-2),
+                mu_depth_dyn_post.flatten(end_dim=-2),
+                mu_o=torch.stack(mu_depth_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                logvar_o=torch.stack(logvar_depth_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                reduce='none',
+                balance=balance)
+            loss_kl_depth_dyn = (loss_kl_depth_dyn.view(batch_size, prediction_horizon, -1, self.n_kp_enc)).sum(-1)
             loss_kl_depth_dyn = (loss_kl_depth_dyn * discount[None, :]).sum(-1).mean()
 
             # features
-            mu_features_dyn_post = mu_features.reshape(batch_size, timestep_horizon + 1, *mu_features.shape[1:])[:,
-                                   num_static:]
-            logvar_features_dyn_post = logvar_features.reshape(batch_size, timestep_horizon + 1,
-                                                               *logvar_features.shape[1:])[:, num_static:]
-            loss_kl_features_dyn = calc_kl(logvar_features_dyn_post.reshape(-1, logvar_features_dyn_post.shape[-1]),
-                                           mu_features_dyn_post.reshape(-1, mu_features_dyn_post.shape[-1]),
-                                           mu_o=mu_features_dyn[:, num_static - 1:].reshape(-1, mu_features_dyn.shape[-1]),
-                                           logvar_o=logvar_features_dyn[:, num_static - 1:].reshape(-1,
-                                                                                                    logvar_features_dyn.shape[
-                                                                                                        -1]),
-                                           reduce='none', balance=balance)
-            loss_kl_features_dyn = (
-                loss_kl_features_dyn.view(batch_size, -1, self.n_kp_enc)).sum(-1)
+            mu_features_dyn_post = mu_features.reshape(batch_size, sequence_length, *mu_features.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            logvar_features_dyn_post = logvar_features.reshape(batch_size, sequence_length, *logvar_features.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            loss_kl_features_dyn = calc_kl(
+                logvar_features_dyn_post.flatten(end_dim=-2),
+                mu_features_dyn_post.flatten(end_dim=-2),
+                mu_o=torch.stack(mu_features_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                logvar_o=torch.stack(logvar_features_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                reduce='none',
+                balance=balance)
+            loss_kl_features_dyn = (loss_kl_features_dyn.view(batch_size, prediction_horizon, -1, self.n_kp_enc)).sum(-1)
             loss_kl_features_dyn = (loss_kl_features_dyn * discount[None, :]).sum(-1).mean()
 
             # bg featuers
-            mu_bg_dyn_post = mu_bg.reshape(batch_size, timestep_horizon + 1, *mu_bg.shape[1:])[:, num_static:]
-            logvar_bg_dyn_post = logvar_bg.reshape(batch_size, timestep_horizon + 1, *logvar_bg.shape[1:])[:, num_static:]
-            loss_kl_bg_dyn = calc_kl(logvar_bg_dyn_post.reshape(-1, logvar_bg_dyn_post.shape[-1]),
-                                     mu_bg_dyn_post.reshape(-1, mu_bg_dyn_post.shape[-1]),
-                                     mu_o=mu_bg_features_dyn[:, num_static - 1:].reshape(-1, mu_bg_features_dyn.shape[-1]),
-                                     logvar_o=logvar_bg_features_dyn[:, num_static - 1:].reshape(-1,
-                                                                                                 logvar_bg_features_dyn.shape[
-                                                                                                     -1]),
-                                     reduce='none', balance=balance)
-            loss_kl_bg_dyn = loss_kl_bg_dyn.view(batch_size, -1)
+            mu_bg_dyn_post = mu_bg.reshape(batch_size, sequence_length, *mu_bg.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            logvar_bg_dyn_post = logvar_bg.reshape(batch_size, sequence_length, *logvar_bg.shape[1:])\
+                                .unfold(1, timestep_horizon + 1, 1).movedim(-1, 2)[:, :, num_static:]
+            loss_kl_bg_dyn = calc_kl(
+                logvar_bg_dyn_post.flatten(end_dim=-2),
+                mu_bg_dyn_post.flatten(end_dim=-2),
+                mu_o=torch.stack(mu_bg_features_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                logvar_o=torch.stack(logvar_bg_features_dyn).movedim(0, 1)[:, :, num_static - 1:].flatten(end_dim=-2),
+                reduce='none',
+                balance=balance)
+            loss_kl_bg_dyn = loss_kl_bg_dyn.view(batch_size, prediction_horizon, -1)
             loss_kl_bg_dyn = (loss_kl_bg_dyn * discount[None, :]).sum(-1).mean()
 
             # total dynamics kl
@@ -3144,3 +3184,91 @@ class ObjectDynamicsDLP(nn.Module):
             other_param = other.parameters()
             for p, p_other in zip(params, other_param):
                 p.data.lerp_(p_other.data, 1.0 - betta)
+
+    def predict(self, x, action=None, num_steps=None, deterministic=True, bg_masks_from_fg=False, return_z=False,
+                return_debug=False):
+        """
+        (Conditioanl) Sampling from DDLP: x is the conditional frames, encoded to latent particles
+         which are unrolled to the future with PINT, and the predicted particles are then decoded to a sequence
+         of RGB images.
+        """
+        assert self.dynamics, f'Can sample only from dynamics model, but self.dynamics={self.dynamics}'
+        if self.action_dim is not None:
+            if action is None:
+                raise ValueError(f'Must provide actions for action-conditioned model')
+
+        if self.action_dim is None:
+            if num_steps is None:
+                raise ValueError(f'Must provide num_steps for video prediction model')
+
+        # x: [bs, T, ...]
+        # encode-decode
+        batch_size, timestep_horizon = x.size(0), x.size(1)
+        num_steps = action.size()[1] - timestep_horizon + 1
+        # sequential
+        fg_dict = self.fg_sequential_opt(x, deterministic=deterministic, x_prior=x, reshape=True)
+        x_in = x.reshape(-1, *x.shape[2:])  # [batch_size_all * timestep_horizon, ...]
+        # encoder
+        z = fg_dict['z']
+        z_features = fg_dict['z_features']
+        z_obj_on = fg_dict['obj_on']
+        z_depth = fg_dict['z_depth']
+        z_scale = fg_dict['z_scale']
+
+        # decoder
+        bg_mask = fg_dict['bg_mask']
+        dec_objects_trans = fg_dict['dec_objects']
+
+        if bg_masks_from_fg:
+            bg_enc_mask = bg_mask
+        else:
+            bg_enc_mask = self.get_bg_mask_from_particle_glimpses(z, z_obj_on, mask_size=x_in.shape[-1])
+        bg_dict = self.bg_module(x_in, bg_enc_mask, deterministic)
+        z_bg = bg_dict['z_bg']
+        bg = bg_dict['bg_rec']
+
+        # stitch
+        rec = bg_mask * bg + dec_objects_trans
+        rec = rec.view(batch_size, timestep_horizon, *rec.shape[1:])
+
+        z_v = z.view(batch_size, timestep_horizon, *z.shape[1:])
+        z_scale_v = z_scale.view(batch_size, timestep_horizon, *z_scale.shape[1:])
+        z_obj_on_v = z_obj_on.view(batch_size, timestep_horizon, *z_obj_on.shape[1:])
+        z_depth_v = z_depth.view(batch_size, timestep_horizon, *z_depth.shape[1:])
+        z_features_v = z_features.view(batch_size, timestep_horizon, *z_features.shape[1:])
+        z_bg_features_v = z_bg.view(batch_size, timestep_horizon, *z_bg.shape[1:])
+
+        # dynamics
+        dyn_out = self.dyn_module.sample(z_v, z_scale_v, z_obj_on_v, z_depth_v, z_features_v, z_bg_features_v,
+                                         steps=num_steps, deterministic=deterministic, action=action)
+        z_dyn, z_scale_dyn, z_obj_on_dyn, z_depth_dyn, z_features_dyn, z_bg_features_dyn = dyn_out
+        if return_z:
+            z_ids = 1 + torch.arange(z_dyn.shape[2], device=z_dyn.device)  # num_particles, ids start from 1
+            z_ids = z_ids[None, None, :].repeat(z_dyn.shape[0], z_dyn.shape[1], 1)  # [bs, T, n_particles]
+            z_out = {'z_pos': z_dyn.detach(), 'z_scale': z_scale_dyn.detach(), 'z_obj_on': z_obj_on_dyn.detach(),
+                     'z_depth': z_depth_dyn.detach(), 'z_features': z_features_dyn.detach(),
+                     'z_bg_features': z_bg_features_dyn.detach(), 'z_ids': z_ids}
+        # decode
+        z_dyn = z_dyn[:, -num_steps:].reshape(-1, *z_dyn.shape[2:])
+        z_features_dyn = z_features_dyn[:, -num_steps:].reshape(-1, *z_features_dyn.shape[2:])
+        z_bg_features_dyn = z_bg_features_dyn[:, -num_steps:].reshape(-1, *z_bg_features_dyn.shape[2:])
+        z_obj_on_dyn = z_obj_on_dyn[:, -num_steps:].reshape(-1, *z_obj_on_dyn.shape[2:])
+        z_depth_dyn = z_depth_dyn[:, -num_steps:].reshape(-1, *z_depth_dyn.shape[2:])
+        z_scale_dyn = z_scale_dyn[:, -num_steps:].reshape(-1, *z_scale_dyn.shape[2:])
+        dec_out = self.decode_all(z_dyn, z_features_dyn, z_bg_features_dyn, z_obj_on_dyn,
+                                  z_depth=z_depth_dyn, z_scale=z_scale_dyn)
+        rec_dyn = dec_out['rec']
+        rec_dyn = rec_dyn.reshape(batch_size, -1, *rec_dyn.shape[1:])
+        rec_dyn = rec_dyn.reshape(batch_size, num_steps, *rec_dyn.shape[2:])
+        rec = torch.cat([rec, rec_dyn], dim=1)
+        assert (batch_size, timestep_horizon + num_steps) == rec.size()[:2], "prediction and gt frames shape don't match"
+
+        result = [rec]
+        if return_z:
+            result.append({k: v.reshape(batch_size, timestep_horizon + 1, *v.shape[2:]) for k, v in z_out.items()})
+
+        if return_debug:
+            result.append({k: v.reshape(batch_size, timestep_horizon, *v.shape[1:]) for k, v in fg_dict.items()})
+            result.append(rec_dyn)
+
+        return result

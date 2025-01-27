@@ -59,6 +59,7 @@ def create_ddlp(config_path):
     filtering_heuristic = config["filtering_heuristic"]  # filtering heuristic to filter prior keypoints
     use_actions = config.get("use_actions", False)  # use action-conditioned dynamics model
     max_beta_coef = config.get("max_beta_coef", 100)
+    duplicate_on_episode_start = config.get("duplicate_on_episode_start", False) # populate the context with duplicated frame in the beginning of the episode
 
     # optimization
     warmup_epoch = config['warmup_epoch']
@@ -79,6 +80,7 @@ def create_ddlp(config_path):
     obj_on_beta = config['obj_on_beta']  # transparency beta distribution "b"
 
     # transformer - PINT
+    dynamics = config.get('dynamics', True)
     pint_layers = config['pint_layers']
     pint_heads = config['pint_heads']
     pint_dim = config['pint_dim']
@@ -96,7 +98,8 @@ def create_ddlp(config_path):
                               obj_on_beta=obj_on_beta, pint_layers=pint_layers, pint_heads=pint_heads,
                               pint_dim=pint_dim, use_correlation_heatmaps=use_correlation_heatmaps,
                               enable_enc_attn=enable_enc_attn, filtering_heuristic=filtering_heuristic,
-                              max_beta_coef=max_beta_coef, action_dim=action_dim, mu_scale_prior=mu_scale_prior)
+                              max_beta_coef=max_beta_coef, action_dim=action_dim, mu_scale_prior=mu_scale_prior,
+                              dynamics=dynamics)
 
     return model
 
