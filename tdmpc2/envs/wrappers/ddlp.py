@@ -43,8 +43,8 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
     def _encode(self):
         x = torch.as_tensor(self.frames, dtype=torch.float32, device=self.device) / 255.
         x = x.permute(0, 3, 1, 2).unsqueeze(0)
-        dlp_output = self.ddlp(x, deterministic=True, x_prior=x, warmup=False, noisy=False, forward_dyn=False,
-                               train_enc_prior=self.train_enc_prior, num_static_frames=self.num_static_frames)
+        dlp_output = self.ddlp(x, deterministic=True, x_prior=x, warmup=False, noisy=False, predict_next=False,
+                               sequential=True, train_enc_prior=self.train_enc_prior, num_static_frames=self.num_static_frames)
 
         fg = self.ddlp.get_dlp_rep(dlp_output['z'], dlp_output['mu_scale'], dlp_output['mu_depth'],
                                    dlp_output['mu_features'], dlp_output['obj_on'].unsqueeze(dim=-1))
