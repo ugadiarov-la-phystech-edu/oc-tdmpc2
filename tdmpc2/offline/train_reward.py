@@ -27,9 +27,13 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
+def foreground_features(x: DatasetItem):
+    return torch.cat([x.z, x.mu_scale, x.mu_depth, x.mu_features, x.obj_on], dim=-1)
+
+
 def create_dataloader(dataset_type, dataset_path, split, batch_size, num_workers, **kwargs):
     if dataset_type == 'ddlp':
-        dataset = DDLPFeaturesDataset(dataset_path, split)
+        dataset = DDLPFeaturesDataset(dataset_path, split, **kwargs)
     elif dataset_type == 'rgb':
         dataset = EpisodesDataset(dataset_path, split, **kwargs)
     else:
@@ -51,12 +55,13 @@ class GNNRewardModel(nn.Module):
 
         self.reward_model = OCRewardModel(config, n_slots=n_slots)
 
-    def forward(self, x: DatasetItem):
+    def forward(self, fg, bg, action):
+        x = fg
         if self.background_projection is not None:
-            background_particle = self.background_projection(x.bg)
-            x = x.update(fg=torch.cat([x.fg, background_particle.unsqueeze(1)], dim=1))
+            background_particle = self.background_projection(bg)
+            x = torch.cat([x, background_particle], dim=1)
 
-        return self.reward_model(x.fg, x.action)
+        return self.reward_model(x, action)
 
 
 class EITRewardModel(EITCritic):
@@ -101,8 +106,11 @@ def run(reward_model: nn.Module, dataloader: DataLoader, device: str, is_train: 
     losses = []
     for batch in pbar:
         batch = batch.to(device)
-        predicted_rewards = reward_model(batch)
-        loss = nn.functional.mse_loss(predicted_rewards.reshape_as(batch.reward), batch.reward)
+        fg = foreground_features(batch)[:, :-1].permute(0, 2, 1, 3).flatten(start_dim=2)
+        bg = batch.z_bg[:, :-1].permute(0, 2, 1, 3).flatten(start_dim=2)
+        predicted_rewards = reward_model(fg, bg, batch.action[:, -1])
+        gt_rewards = batch.reward[:, -1:]
+        loss = nn.functional.mse_loss(predicted_rewards, gt_rewards)
         if is_train:
             optimizer.zero_grad()
             loss.backward()
@@ -132,6 +140,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_group', type=str, default=None)
     parser.add_argument('--wandb_run', type=str, default=None)
     parser.add_argument('--model_type', type=str, choices=['gnn', 'eit', 'monolithic'], required=True)
+    parser.add_argument('--sample_length', type=int, required=True)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision('medium')
@@ -141,7 +150,7 @@ if __name__ == '__main__':
                       duplicate_on_episode_start=True)
     else:
         dataset_type = 'ddlp'
-        kwargs = {}
+        kwargs = {'sample_length': args.sample_length}
 
     train_dataloader = create_dataloader(dataset_type, args.dataset_path, 'train', args.batch_size, args.num_workers,
                                          **kwargs)
@@ -157,14 +166,18 @@ if __name__ == '__main__':
         config.update({'obs': 'rgb', 'obs_shape': {'rgb': (3 * num_frames, 64, 64)}, 'task_dim': 0, 'num_enc_layers': 2, 'enc_dim': 256,
                        'num_channels': 32, 'simnorm_dim': 8, 'mlp_dim': 512})
     else:
-        n_slots, slot_dim = sample.fg[0].size()
-        config.update({'use_interactions': args.use_interactions, 'num_bins': 1, 'n_slots': n_slots,
-         'slot_dim': slot_dim,})
+        n_slots = sample.z.size()[-2]
+        slot_dim = foreground_features(sample).size()[-1] * args.sample_length
+        background_slot_dim = None
+        if args.use_background:
+            background_slot_dim = sample.z_bg.size()[-1] * args.sample_length
+
+        config = {'latent_dim': args.latent_dim, 'action_dim': action_dim, 'use_interactions': args.use_interactions,
+                  'n_slots': n_slots, 'slot_dim': slot_dim, 'num_bins': 1}
 
     config = OmegaConf.create(config)
-    background_dim = sample.bg[0].size()[0] if args.use_background else None
     if args.model_type == 'gnn':
-        reward_model = GNNRewardModel(config, background_dim)
+        reward_model = GNNRewardModel(config, background_slot_dim)
     elif args.model_type == 'eit':
         config['eit_embed_dim'] = 64
         config['eit_h_dim'] = 256
@@ -173,7 +186,7 @@ if __name__ == '__main__':
         config['eit_action_particle'] = True
         config['eit_masking'] = True
         config['eit_use_background'] = args.use_background
-        reward_model = EITRewardModel(config, slot_dim, action_dim, background_dim)
+        reward_model = EITRewardModel(config, slot_dim, action_dim, background_slot_dim)
     elif args.model_type == 'monolithic':
         reward_model = MonolithicRewardModel(config)
     else:
@@ -186,11 +199,12 @@ if __name__ == '__main__':
         train_loss = run(reward_model, train_dataloader, args.device, is_train=True)
         val_loss = run(reward_model, val_dataloader, args.device, is_train=False)
         if args.wandb_project:
-            if wandb.run is None:
+            if wandb.run is None and args.wandb_project is not None:
                 wandb.init(project=args.wandb_project, group=args.wandb_group, name=args.wandb_run, resume='never',
                            config={**vars(args), **OmegaConf.to_container(config)})
 
-            wandb.log({'epoch': epoch, 'train/loss': train_loss, 'val/loss': val_loss})
+            if wandb.run is not None:
+                wandb.log({'epoch': epoch, 'train/loss': train_loss, 'val/loss': val_loss})
 
     if args.wandb_project:
         wandb.finish()

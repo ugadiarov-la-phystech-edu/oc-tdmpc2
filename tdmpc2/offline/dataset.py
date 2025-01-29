@@ -5,7 +5,6 @@ from typing import NamedTuple
 import h5py
 import numpy as np
 from PIL import Image
-from tensordict import TensorDict
 from torch.utils.data import Dataset
 import os
 import torch
@@ -14,10 +13,14 @@ from torchvision.transforms import transforms
 
 class DatasetItem(NamedTuple):
     img: torch.Tensor = torch.empty(0)
-    fg: torch.Tensor = torch.empty(0)
-    bg: torch.Tensor = torch.empty(0)
-    action: torch.Tensor = torch.empty(0)
+    z: torch.Tensor = torch.empty(0)
+    mu_scale: torch.Tensor = torch.empty(0)
+    mu_depth: torch.Tensor = torch.empty(0)
+    mu_features: torch.Tensor = torch.empty(0)
+    obj_on: torch.Tensor = torch.empty(0)
+    z_bg: torch.Tensor = torch.empty(0)
     reward: torch.Tensor = torch.empty(0)
+    action: torch.Tensor = torch.empty(0)
 
     def to(self, device):
         return DatasetItem(*[element.to(device) for element in self])
@@ -27,36 +30,45 @@ class DatasetItem(NamedTuple):
 
 
 class DDLPFeaturesDataset(Dataset):
-    def __init__(self, path, split, do_flatten_over_timestep_horizon=True):
+    def __init__(self, path, split, sample_length=1,):
         assert split in ['train', 'val', 'valid']
         if split == 'valid':
             split = 'val'
 
-        self.do_flatten_over_timestep_horizon = do_flatten_over_timestep_horizon
         self.split_path = os.path.join(path, f'{split}.hdf5')
+        self.sample_length = sample_length
         self.episode_data = {}
         self.index2episode = []
         self.episode2offset = {}
         self.n_elements = 0
         with h5py.File(self.split_path, 'r') as file_obj:
             for episode_id, group in file_obj.items():
-                self.episode_data[episode_id] = TensorDict({key: torch.as_tensor(group[key][()]) for key in (
-                'fg_representation', 'bg_representation', 'actions', 'rewards')}, batch_size=group['actions'].shape[0])
+                self.episode_data[episode_id] = {key: torch.as_tensor(value[()]) for key, value in group.items()}
                 episode_len = self.episode_data[episode_id]['actions'].size()[0]
-                self.index2episode.extend([episode_id] * episode_len)
+                actual_length = episode_len - self.sample_length + 1
+                if actual_length <= 0:
+                    warnings.warn(
+                        f'Drop episode {episode_id} with length={len(episode_len)} as it too short for sample_length={self.sample_length}')
+                    continue
+
+                self.index2episode.extend([episode_id] * actual_length)
                 self.episode2offset[episode_id] = self.n_elements
-                self.n_elements += episode_len
+                self.n_elements += actual_length
 
     def __getitem__(self, index):
         episode_id = self.index2episode[index]
-        element = self.episode_data[episode_id][index - self.episode2offset[episode_id]]
-        if self.do_flatten_over_timestep_horizon:
-            element['fg'] = element.pop('fg_representation').permute((1, 0, 2)).flatten(start_dim=-2)
-            element['bg'] = element.pop('bg_representation').flatten(start_dim=-2)
-            element['action'] = element.pop('actions').flatten(start_dim=-2)
-            element['reward'] = element.pop('rewards')
-
-        return DatasetItem(**element)
+        start_index = index - self.episode2offset[episode_id]
+        episode = self.episode_data[episode_id]
+        return DatasetItem(
+            z=episode['z'][start_index: start_index + self.sample_length + 1],
+            mu_scale=episode['mu_scale'][start_index: start_index + self.sample_length + 1],
+            mu_depth=episode['mu_depth'][start_index: start_index + self.sample_length + 1],
+            mu_features=episode['mu_features'][start_index: start_index + self.sample_length + 1],
+            obj_on=episode['obj_on'][start_index: start_index + self.sample_length + 1],
+            z_bg=episode['z_bg'][start_index: start_index + self.sample_length + 1],
+            reward=episode['rewards'][start_index: start_index + self.sample_length],
+            action=episode['actions'][start_index: start_index + self.sample_length],
+        )
 
     def __len__(self):
         return self.n_elements
@@ -199,7 +211,7 @@ class EpisodesDataset(Dataset):
 
 
 if __name__ == '__main__':
-    ds = DDLPFeaturesDataset(path='data', split='val')
+    ds = DDLPFeaturesDataset(path='/tmp/robosuite', split='val', sample_length=5)
     print('Length:', len(ds))
     for i in range(len(ds)):
         ds[i]
