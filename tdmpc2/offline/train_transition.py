@@ -130,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_run', type=str, default=None)
     parser.add_argument('--sample_length', type=int, required=True)
     parser.add_argument('--checkpoint_path', type=str, required=True)
-    parser.add_argument('--save_every_hours', type=int, default=3)
+    parser.add_argument('--save_every_hours', type=float, default=3)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision('medium')
