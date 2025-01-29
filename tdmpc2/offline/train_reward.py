@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import time
 from typing import Tuple
 
 import torch
@@ -141,6 +142,8 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_run', type=str, default=None)
     parser.add_argument('--model_type', type=str, choices=['gnn', 'eit', 'monolithic'], required=True)
     parser.add_argument('--sample_length', type=int, required=True)
+    parser.add_argument('--checkpoint_path', type=str, required=True)
+    parser.add_argument('--save_every_hours', type=int, default=3)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision('medium')
@@ -194,6 +197,7 @@ if __name__ == '__main__':
 
     reward_model = reward_model.to(args.device)
 
+    save_time = time.time() + args.save_every_hours * 60 * 60
     optimizer = torch.optim.Adam(reward_model.parameters(), lr=args.lr,)
     for epoch in itertools.count():
         train_loss = run(reward_model, train_dataloader, args.device, is_train=True)
@@ -205,6 +209,11 @@ if __name__ == '__main__':
 
             if wandb.run is not None:
                 wandb.log({'epoch': epoch, 'train/loss': train_loss, 'val/loss': val_loss})
+
+        if time.time() > save_time:
+            torch.save({'epoch': epoch, 'model_state_dict': reward_model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict()}, args.checkpoint_path)
+            save_time = time.time() + args.save_every_hours * 60 * 60
 
     if args.wandb_project:
         wandb.finish()

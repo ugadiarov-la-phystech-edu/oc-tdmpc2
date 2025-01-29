@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import time
 from typing import Tuple
 
 import torch
@@ -128,6 +129,8 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_group', type=str, default=None)
     parser.add_argument('--wandb_run', type=str, default=None)
     parser.add_argument('--sample_length', type=int, required=True)
+    parser.add_argument('--checkpoint_path', type=str, required=True)
+    parser.add_argument('--save_every_hours', type=int, default=3)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision('medium')
@@ -156,6 +159,7 @@ if __name__ == '__main__':
                                           background_output_dim=background_output_dim).to(args.device)
 
     optimizer = torch.optim.Adam(transition_model.parameters(), lr=args.lr,)
+    save_time = time.time() + args.save_every_hours * 60 * 60
     for epoch in itertools.count():
         train_loss = run(transition_model, train_dataloader, args.device, use_background=args.use_background, is_train=True)
         val_loss = run(transition_model, val_dataloader, args.device, use_background=args.use_background, is_train=False)
@@ -166,6 +170,11 @@ if __name__ == '__main__':
 
             if wandb.run is not None:
                 wandb.log({'epoch': epoch, 'train/loss': train_loss, 'val/loss': val_loss})
+
+        if time.time() > save_time:
+            torch.save({'epoch': epoch, 'model_state_dict': transition_model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict()}, args.checkpoint_path)
+            save_time = time.time() + args.save_every_hours * 60 * 60
 
     if args.wandb_project:
         wandb.finish()
