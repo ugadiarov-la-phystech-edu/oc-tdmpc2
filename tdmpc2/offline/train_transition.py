@@ -89,10 +89,10 @@ def run(model: nn.Module, dataloader: DataLoader, device: str, use_background: b
         batch = batch.to(device)
         fg = foreground_features(batch)
         bg = batch.z_bg
-        next_fg = fg[:, -1]
-        next_bg = bg[:, -1]
-        fg = fg[:, :-1].permute(0, 2, 1, 3).flatten(start_dim=2)
-        bg = bg[:, :-1].permute(0, 2, 1, 3).flatten(start_dim=2)
+        next_fg = fg[:, -1, -1]
+        next_bg = bg[:, -1, -1]
+        fg = fg[:, :-1].permute(0, 3, 1, 2, 4).flatten(start_dim=2)
+        bg = bg[:, :-1].permute(0, 3, 1, 2, 4).flatten(start_dim=2)
         pred_fg, pred_bg = model(fg, bg, batch.action[:, -1])
         if use_background:
             loss = nn.functional.mse_loss(pred_fg, next_fg, reduction='sum')
@@ -140,16 +140,18 @@ if __name__ == '__main__':
     val_dataloader = create_dataloader('ddlp', args.dataset_path, 'val', args.batch_size, args.num_workers,
                                        **kwargs)
 
+    # action.shape -> batch_size, sample_length, action_dim
+    # z.shape -> batch_size, sample_length + 1, timestep_horizon, n_particles, 2
     sample = next(iter(train_dataloader))
     action_dim = sample.action[0].size()[-1]
     n_slots = sample.z.size()[-2]
     output_dim = foreground_features(sample).size()[-1]
-    slot_dim = output_dim * args.sample_length
+    slot_dim = output_dim * args.sample_length * sample.z.size()[-3]
     background_output_dim = None
     background_slot_dim = None
     if args.use_background:
         background_output_dim = sample.z_bg.size()[-1]
-        background_slot_dim = background_output_dim * args.sample_length
+        background_slot_dim = background_output_dim * args.sample_length * sample.z.size()[-3]
 
     config = {'latent_dim': args.latent_dim, 'action_dim': action_dim, 'use_interactions': args.use_interactions, 'n_slots': n_slots,
          'slot_dim': slot_dim,}
@@ -164,12 +166,11 @@ if __name__ == '__main__':
         train_loss = run(transition_model, train_dataloader, args.device, use_background=args.use_background, is_train=True)
         val_loss = run(transition_model, val_dataloader, args.device, use_background=args.use_background, is_train=False)
         if args.wandb_project:
-            if wandb.run is None and args.wandb_project is not None:
+            if wandb.run is None:
                 wandb.init(project=args.wandb_project, group=args.wandb_group, name=args.wandb_run, resume='never',
                            config={**vars(args), **OmegaConf.to_container(config)})
 
-            if wandb.run is not None:
-                wandb.log({'epoch': epoch, 'train/loss': train_loss, 'val/loss': val_loss})
+            wandb.log({'epoch': epoch, 'train/loss': train_loss, 'val/loss': val_loss})
 
         if time.time() > save_time:
             torch.save({'epoch': epoch, 'model_state_dict': transition_model.state_dict(),
