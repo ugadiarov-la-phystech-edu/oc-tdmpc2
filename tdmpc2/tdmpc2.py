@@ -121,18 +121,18 @@ class TDMPC2:
     def _estimate_value(self, z, actions, task):
         """Estimate value of a trajectory starting at latent state z and executing given actions."""
         G, discount = 0, 1
+        reward_actions = actions
+        if len(actions.size()) == 4:
+            # actions.shape -> horizon, batch_size, timestep_horizon, action_dim
+            reward_actions = actions[:, :, -1]
+
         for t in range(self.cfg.horizon):
-            reward = math.two_hot_inv(self.model.reward(z, actions[t], task), self.cfg)
+            reward = math.two_hot_inv(self.model.reward(z, reward_actions[t], task), self.cfg)
             z = self.model.next(z, actions[t], task)
             G += discount * reward
             discount *= self.discount[torch.tensor(task)] if self.cfg.multitask else self.discount
 
         last_action = self.model.pi(z, task)[1]
-        if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type == 'ddlp':
-            action_tmp = torch.empty_like(actions[-1])
-            action_tmp[:, :-1] = actions[-1, :, 1:]
-            action_tmp[:, -1] = last_action
-            last_action = action_tmp
 
         return G + discount * self.model.Q(z, last_action, task, return_type='avg')
 
@@ -359,6 +359,10 @@ class TDMPC2:
         batch_shape = _zs.size()[:2]
         _zs = _zs.flatten(end_dim=1)
         _as = next_action.flatten(end_dim=1)
+        if len(_as.size()) == 3:
+            # _as.shape -> batch_size, timestep_horizon, action_dim
+            _as = _as[:, -1]
+
         qs = self.model.Q(_zs, _as, task, return_type='all')
         qs = qs.view(qs.size()[0], *batch_shape, -1)
         reward_preds = self.model.reward(_zs, _as, task).view(*batch_shape, -1)

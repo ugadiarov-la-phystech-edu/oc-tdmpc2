@@ -567,7 +567,7 @@ class DDLPGNNWorldModel(nn.Module):
 
         if cfg.transition_model_type == 'ddlp':
             self._dynamics = nn.Identity()
-            action_dim = self.cfg.action_dim * self.ddlp_model.timestep_horizon
+            action_dim = self.cfg.action_dim
             slot_dim = self.ddlp_model.get_dlp_features_dim() * self.ddlp_model.timestep_horizon
             n_slots = self.ddlp_model.n_kp_enc
             if self.cfg.eit_use_background:

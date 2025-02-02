@@ -2,6 +2,7 @@ import json
 import os
 
 import torch
+from torch import nn
 
 from dlp.models import ObjectDynamicsDLP
 
@@ -102,6 +103,53 @@ def create_ddlp(config_path):
                               dynamics=dynamics)
 
     return model
+
+
+class Stub(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.bg_learned_feature_dim = config['bg_learned_feature_dim']
+        self.learned_feature_dim = config['learned_feature_dim']
+        self.n_kp_enc = config['n_kp_enc']
+        self.action_dim = config['action_dim']
+        self.image_size = config['image_size']
+        self.timestep_horizon = config['timestep_horizon']
+
+    def get_dlp_features_dim(self):
+        # (x, y), (scale_x, scale_y), depth, learned_feature_dim, obn_on
+        return 2 + 2 + 1 + self.learned_feature_dim + 1
+
+    def get_dlp_background_dim(self):
+        return self.bg_learned_feature_dim
+
+    @staticmethod
+    def get_dlp_rep(pixel_xy, scale_xy, depth, features, transparency):
+        rep = torch.cat((pixel_xy, scale_xy, depth, features, transparency,), dim=-1)
+        return rep
+
+    def forward(self, x, *args, **kwargs):
+        sequence_length = x.size()[1]
+        z = torch.ones(sequence_length, self.n_kp_enc, 2, dtype=torch.float32, device=x.device)
+        mu_scale = torch.ones(sequence_length, self.n_kp_enc, 2, dtype=torch.float32, device=x.device)
+        mu_depth = torch.ones(sequence_length, self.n_kp_enc, 1, dtype=torch.float32, device=x.device)
+        mu_features = torch.ones(sequence_length, self.n_kp_enc, self.learned_feature_dim, dtype=torch.float32, device=x.device)
+        obj_on = torch.ones(sequence_length, self.n_kp_enc, dtype=torch.float32, device=x.device)
+        z_bg = torch.ones(sequence_length, self.bg_learned_feature_dim, dtype=torch.float32, device=x.device)
+
+        return {'z': z, 'mu_scale': mu_scale, 'mu_depth': mu_depth, 'mu_features': mu_features, 'obj_on': obj_on, 'z_bg': z_bg}
+
+    def dyn_module(self, z_kp, z_scale, z_obj_on, z_depth, z_features, z_bg, a):
+        batch_size, sequence_length = z_kp.size()[:2]
+        z = torch.ones(batch_size, sequence_length, self.n_kp_enc, 2, dtype=torch.float32, device=z_kp.device)
+        mu_scale = torch.ones(batch_size, sequence_length, self.n_kp_enc, 2, dtype=torch.float32, device=z_kp.device)
+        mu_depth = torch.ones(batch_size, sequence_length, self.n_kp_enc, 1, dtype=torch.float32, device=z_kp.device)
+        mu_features = torch.ones(batch_size, sequence_length, self.n_kp_enc, self.learned_feature_dim, dtype=torch.float32, device=z_kp.device)
+        obj_on_a = torch.ones(batch_size, sequence_length, self.n_kp_enc, dtype=torch.float32, device=z_kp.device)
+        z_bg = torch.ones(batch_size, sequence_length, self.bg_learned_feature_dim, dtype=torch.float32, device=z_kp.device)
+        return {'mu': z, 'mu_scale': mu_scale, 'mu_depth': mu_depth, 'mu_features': mu_features, 'obj_on_a': obj_on_a, 'obj_on_b': obj_on_a, 'mu_bg_features': z_bg}
+
+    def load_state_dict(self, *args, **kwargs):
+        return self
 
 
 def load_checkpoint(model, checkpoint_path):
