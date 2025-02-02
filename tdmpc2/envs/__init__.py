@@ -4,7 +4,11 @@ from copy import deepcopy
 import warnings
 
 import gym
-import isaacgym
+try:
+    import isaacgym
+except ImportError:
+    print('isaacgym is not installed')
+
 import torch
 
 from envs.wrappers.ddlp import DynamicDDLPExtractorWrapper, StaticDDLPExtractorWrapper

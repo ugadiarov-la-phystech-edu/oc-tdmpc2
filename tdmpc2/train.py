@@ -1,5 +1,10 @@
 import os
-import isaacgym
+
+try:
+    import isaacgym
+except ImportError:
+    print('isaacgym is not installed')
+
 from dlp import create_ddlp, load_checkpoint
 
 os.environ['MUJOCO_GL'] = 'egl'
