@@ -319,7 +319,7 @@ class TDMPC2:
         with torch.no_grad():
             next_z = self.model.encode(obs[1:], task)
             prev_actions = None
-            if self.cfg.world_model_type == 'ddlp' and self.cfg.transition_model_type == 'ddlp':
+            if self.cfg.world_model_type == 'eit' and self.cfg.transition_model_type == 'ddlp':
                 prev_actions = next_action
 
             td_targets = self._td_target(next_z, reward, task, prev_actions=prev_actions)
@@ -389,7 +389,7 @@ class TDMPC2:
 
         # Update policy
         prev_actions = None
-        if self.cfg.world_model_type == 'ddlp' and self.cfg.transition_model_type == 'ddlp':
+        if self.cfg.world_model_type == 'eit' and self.cfg.transition_model_type == 'ddlp':
             prev_actions = action.copy()
 
         pi_loss = self.update_pi(zs.detach(), task, prev_actions)
