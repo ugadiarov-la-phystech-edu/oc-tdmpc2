@@ -390,7 +390,7 @@ class TDMPC2:
         # Update policy
         prev_actions = None
         if self.cfg.world_model_type == 'eit' and self.cfg.transition_model_type == 'ddlp':
-            prev_actions = action.copy()
+            prev_actions = action.detach()
 
         pi_loss = self.update_pi(zs.detach(), task, prev_actions)
 
