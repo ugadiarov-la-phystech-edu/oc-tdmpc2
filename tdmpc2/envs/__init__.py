@@ -122,7 +122,8 @@ def make_env(cfg, **kwargs):
 
         if cfg.transition_model_type == 'ddlp':
             env = DynamicDDLPExtractorWrapper(env, ddlp, device='cuda', num_static_frames=config['num_static_frames'],
-                                              train_enc_prior=config['train_enc_prior'])
+                                              train_enc_prior=config['train_enc_prior'],
+                                              save_folder=kwargs.get('save_folder', None))
         elif cfg.transition_model_type == 'gnn':
             env = StaticDDLPExtractorWrapper(env, ddlp, device='cuda', num_static_frames=config['num_static_frames'],
                                              train_enc_prior=config['train_enc_prior'], num_frames=cfg.num_frames)

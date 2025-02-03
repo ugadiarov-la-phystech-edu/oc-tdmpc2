@@ -1,6 +1,9 @@
+import os
+
 import gym
 import numpy as np
 import torch
+from PIL import Image
 
 
 def get_dlp_rep(dlp_output):
@@ -18,7 +21,7 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
     Wrapper uses DDLP model.
     """
 
-    def __init__(self, env, model, device, num_static_frames, train_enc_prior):
+    def __init__(self, env, model, device, num_static_frames, train_enc_prior, save_folder=None):
         super().__init__(env)
         assert env.observation_space.shape[:-1] == (model.image_size, model.image_size), f'Expected image size: {model.image_size}. Actual image shape: {env.observation_space.shape}'
 
@@ -39,6 +42,15 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
         self.frames = np.zeros((self.ddlp.timestep_horizon, *env.observation_space.shape),
                                dtype=env.observation_space.dtype)
         self.actions = np.zeros((self.ddlp.timestep_horizon, *env.action_space.shape), dtype=env.action_space.dtype)
+        self.n_episodes = -1
+        self.observation_in_episode = -1
+        self.save_folder = save_folder
+        self.do_save = self.save_folder is not None
+        if self.do_save:
+            os.makedirs(self.save_folder, exist_ok=False)
+
+        self.episode_actions = None
+        self.episode_rewards = None
 
     def _encode(self):
         x = torch.as_tensor(self.frames, dtype=torch.float32, device=self.device) / 255.
@@ -55,10 +67,30 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
     def get_actions(self):
         return self.actions.copy()
 
+    def maybe_save_observation(self, frame):
+        if self.do_save:
+            episode_folder = os.path.join(self.save_folder, f'{self.n_episodes:05d}')
+            os.makedirs(episode_folder, exist_ok=True)
+            Image.fromarray(frame).save(os.path.join(episode_folder, f'{self.observation_in_episode:05d}.png'))
+
+    def maybe_save_actions_and_rewards(self):
+        if self.do_save and self.n_episodes >= 0:
+            episode_folder = os.path.join(self.save_folder, f'{self.n_episodes:05d}')
+            actions_path = os.path.join(episode_folder, "actions.npy")
+            rewards_path = os.path.join(episode_folder, "rewards.npy")
+            np.save(actions_path, np.asarray(self.episode_actions))
+            np.save(rewards_path, np.asarray(self.episode_rewards))
+
     def reset(self):
         frame = self.env.reset()
         self.frames[:] = frame
         self.actions[:] = 0
+        self.n_episodes += 1
+        self.episode_actions = []
+        self.episode_rewards = []
+        self.observation_in_episode = 0
+        self.maybe_save_observation(frame)
+
         return self._encode()
 
     def step(self, action):
@@ -67,6 +99,13 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
         self.frames[-1] = frame
         self.actions[:-1] = self.actions[1:]
         self.actions[-1] = action
+        self.observation_in_episode += 1
+        self.maybe_save_observation(frame)
+        self.episode_actions.append(action)
+        self.episode_rewards.append(reward)
+        if done:
+            self.maybe_save_actions_and_rewards()
+
         return self._encode(), reward, done, info
 
 
