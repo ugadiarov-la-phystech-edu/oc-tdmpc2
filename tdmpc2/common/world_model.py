@@ -486,7 +486,7 @@ class DDLPWorldModel(nn.Module):
         """
         # z.shape -> batch_size, timestep_horizon, n_particles, features_dim
         x = z['fg'][:, -1]
-        action = a[:, -1]
+        action = a
         if self.cfg.multitask:
             x = self.task_emb(x, task)
         return self._reward(x, action, bg=z['bg'][:, -1])[0]
