@@ -77,6 +77,8 @@ def collect(cfg: dict, checkpoint_path: str, save_folder: str, n_episodes: int):
             obs, reward, done, info = env.step(action)
             t += 1
 
+    env.wait_for_futures()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

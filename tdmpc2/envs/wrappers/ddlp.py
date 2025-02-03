@@ -1,3 +1,5 @@
+import collections
+import concurrent.futures
 import os
 
 import gym
@@ -14,6 +16,18 @@ def get_dlp_rep(dlp_output):
     transp = dlp_output['obj_on'].unsqueeze(dim=-1)
     rep = torch.cat((pixel_xy, scale_xy, depth, visual_features, transp,), dim=-1)
     return rep
+
+
+def save_image(image, episode_folder, image_file_name):
+    os.makedirs(episode_folder, exist_ok=True)
+    Image.fromarray(image).save(os.path.join(episode_folder, image_file_name))
+
+
+def save_actions_and_rewards(action, rewards, episode_folder):
+    actions_path = os.path.join(episode_folder, "actions.npy")
+    rewards_path = os.path.join(episode_folder, "rewards.npy")
+    np.save(actions_path, np.asarray(action))
+    np.save(rewards_path, np.asarray(rewards))
 
 
 class DynamicDDLPExtractorWrapper(gym.Wrapper):
@@ -47,6 +61,8 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
         self.save_folder = save_folder
         self.do_save = self.save_folder is not None
         if self.do_save:
+            self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=1)
+            self.futures = collections.deque()
             os.makedirs(self.save_folder, exist_ok=False)
 
         self.episode_actions = None
@@ -70,16 +86,15 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
     def maybe_save_observation(self, frame):
         if self.do_save:
             episode_folder = os.path.join(self.save_folder, f'{self.n_episodes:05d}')
-            os.makedirs(episode_folder, exist_ok=True)
-            Image.fromarray(frame).save(os.path.join(episode_folder, f'{self.observation_in_episode:05d}.png'))
+            future = self.executor.submit(save_image, frame, episode_folder, f'{self.observation_in_episode:05d}.png')
+            self.futures.append(future)
 
     def maybe_save_actions_and_rewards(self):
         if self.do_save and self.n_episodes >= 0:
             episode_folder = os.path.join(self.save_folder, f'{self.n_episodes:05d}')
-            actions_path = os.path.join(episode_folder, "actions.npy")
-            rewards_path = os.path.join(episode_folder, "rewards.npy")
-            np.save(actions_path, np.asarray(self.episode_actions))
-            np.save(rewards_path, np.asarray(self.episode_rewards))
+            future = self.executor.submit(save_actions_and_rewards, np.asarray(self.episode_actions),
+                                          np.asarray(self.episode_rewards), episode_folder)
+            self.futures.append(future)
 
     def reset(self):
         frame = self.env.reset()
@@ -105,8 +120,16 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
         self.episode_rewards.append(reward)
         if done:
             self.maybe_save_actions_and_rewards()
+            while self.futures[0].done():
+                self.futures.popleft().result()
 
         return self._encode(), reward, done, info
+
+    def wait_for_futures(self):
+        for future in self.futures:
+            future.result()
+
+        self.executor.shutdown(wait=False)
 
 
 class StaticDDLPExtractorWrapper(gym.Wrapper):
