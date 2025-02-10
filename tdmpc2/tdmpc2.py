@@ -182,7 +182,7 @@ class TDMPC2:
         else:
             z = torch.repeat_interleave(z, repeats=self.cfg.num_samples, dim=0)
 
-        if self.cfg.transition_model_type == 'ddlp':
+        if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type == 'ddlp':
             actions = torch.empty(self.cfg.horizon, self.cfg.num_samples, self.model.ddlp_model.timestep_horizon, self.cfg.action_dim, device=self.device)
         else:
             actions = torch.empty(self.cfg.horizon, self.cfg.num_samples, self.cfg.action_dim, device=self.device)
