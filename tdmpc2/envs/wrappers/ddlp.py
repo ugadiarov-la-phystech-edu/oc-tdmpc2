@@ -118,7 +118,7 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
         self.maybe_save_observation(frame)
         self.episode_actions.append(action)
         self.episode_rewards.append(reward)
-        if done:
+        if done and self.do_save:
             self.maybe_save_actions_and_rewards()
             while self.futures[0].done():
                 self.futures.popleft().result()
@@ -126,6 +126,9 @@ class DynamicDDLPExtractorWrapper(gym.Wrapper):
         return self._encode(), reward, done, info
 
     def wait_for_futures(self):
+        if not self.do_save:
+            return
+
         for future in self.futures:
             future.result()
 
