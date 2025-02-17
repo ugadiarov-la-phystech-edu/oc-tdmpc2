@@ -30,13 +30,14 @@ class DatasetItem(NamedTuple):
 
 
 class DDLPFeaturesDataset(Dataset):
-    def __init__(self, path, split, sample_length=1,):
+    def __init__(self, path, split, sample_length=1):
         assert split in ['train', 'val', 'valid']
         if split == 'valid':
             split = 'val'
 
         self.split_path = os.path.join(path, f'{split}.hdf5')
         self.sample_length = sample_length
+        self.return_pairs = None
         self.episode_data = {}
         self.index2episode = []
         self.episode2offset = {}
@@ -44,6 +45,12 @@ class DDLPFeaturesDataset(Dataset):
         with h5py.File(self.split_path, 'r') as file_obj:
             for episode_id, group in file_obj.items():
                 self.episode_data[episode_id] = {key: torch.as_tensor(value[()]) for key, value in group.items()}
+                if self.return_pairs is None:
+                    self.return_pairs = len(self.episode_data[episode_id]['actions'].size()) < 4
+                else:
+                    return_pairs = len(self.episode_data[episode_id]['actions'].size()) < 4
+                    assert self.return_pairs == return_pairs, f'Inconsistent data format'
+
                 episode_len = self.episode_data[episode_id]['actions'].size()[0]
                 actual_length = episode_len - self.sample_length + 1
                 if actual_length <= 0:
@@ -59,13 +66,14 @@ class DDLPFeaturesDataset(Dataset):
         episode_id = self.index2episode[index]
         start_index = index - self.episode2offset[episode_id]
         episode = self.episode_data[episode_id]
+        k = int(self.return_pairs)
         return DatasetItem(
-            z=episode['z'][start_index: start_index + self.sample_length + 1],
-            mu_scale=episode['mu_scale'][start_index: start_index + self.sample_length + 1],
-            mu_depth=episode['mu_depth'][start_index: start_index + self.sample_length + 1],
-            mu_features=episode['mu_features'][start_index: start_index + self.sample_length + 1],
-            obj_on=episode['obj_on'][start_index: start_index + self.sample_length + 1],
-            z_bg=episode['z_bg'][start_index: start_index + self.sample_length + 1],
+            z=episode['z'][start_index: start_index + self.sample_length + k],
+            mu_scale=episode['mu_scale'][start_index: start_index + self.sample_length + k],
+            mu_depth=episode['mu_depth'][start_index: start_index + self.sample_length + k],
+            mu_features=episode['mu_features'][start_index: start_index + self.sample_length + k],
+            obj_on=episode['obj_on'][start_index: start_index + self.sample_length + k],
+            z_bg=episode['z_bg'][start_index: start_index + self.sample_length + k],
             reward=episode['rewards'][start_index: start_index + self.sample_length],
             action=episode['actions'][start_index: start_index + self.sample_length],
         )

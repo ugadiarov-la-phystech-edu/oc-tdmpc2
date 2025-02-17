@@ -1,4 +1,5 @@
 import argparse
+import collections
 import itertools
 import time
 from typing import Tuple
@@ -93,7 +94,7 @@ class MonolithicRewardModel(nn.Module):
         return self._reward(torch.cat([self._encoder[self.cfg.obs](obs), action], dim=-1))
 
 
-def run(reward_model: nn.Module, dataloader: DataLoader, device: str, is_train: bool = True):
+def run(reward_model: nn.Module, dataloader: DataLoader, device: str, is_train: bool = True, reward_discount=1.0):
     if is_train:
         mode = 'train'
         reward_model.train()
@@ -104,14 +105,31 @@ def run(reward_model: nn.Module, dataloader: DataLoader, device: str, is_train: 
         reward_model.requires_grad_(False)
 
     pbar = tqdm(iterable=dataloader)
-    losses = []
+    metrics = collections.defaultdict(list)
     for batch in pbar:
         batch = batch.to(device)
-        fg = foreground_features(batch)[:, :-1].permute(0, 3, 1, 2, 4).flatten(start_dim=2)
-        bg = batch.z_bg[:, :-1].permute(0, 3, 1, 2, 4).flatten(start_dim=2)
-        predicted_rewards = reward_model(fg, bg, batch.action[:, -1])
-        gt_rewards = batch.reward[:, -1:]
-        loss = nn.functional.mse_loss(predicted_rewards, gt_rewards)
+        if len(batch.action.size()) == 5:
+            sample_length = batch.action.size()[1]
+            assert sample_length == 1, f'Expected: sample_length == 1. Actual: sample_length={sample_length}'
+            batch_size, _, prediction_horizon = batch.action.size()[:3]
+            fg = foreground_features(batch)[:, 0].movedim(3, 2).flatten(start_dim=3).flatten(end_dim=1)
+            bg = batch.z_bg[:, 0].movedim(3, 2).flatten(start_dim=3).flatten(end_dim=1)
+            predicted_rewards = reward_model(fg, bg, batch.action[:, 0, :, -1].flatten(end_dim=1)).reshape(batch_size, prediction_horizon)
+            gt_rewards = batch.reward[:, 0].reshape(batch_size * prediction_horizon, -1).reshape(batch_size, prediction_horizon)
+            discount = torch.pow(reward_discount * torch.ones(prediction_horizon, dtype=torch.float32, device=device),
+                                 torch.arange(prediction_horizon, dtype=torch.float32, device=device)).unsqueeze(0)
+            loss = torch.mean(discount * (predicted_rewards - gt_rewards) ** 2, dim=0)
+            for step, step_loss in enumerate(loss):
+                metrics[f'loss_step-{step}'].append(step_loss.item())
+
+            loss = torch.mean(loss)
+        else:
+            fg = foreground_features(batch)[:, :-1].permute(0, 3, 1, 2, 4).flatten(start_dim=2)
+            bg = batch.z_bg[:, :-1].permute(0, 3, 1, 2, 4).flatten(start_dim=2)
+            predicted_rewards = reward_model(fg, bg, batch.action[:, -1])
+            gt_rewards = batch.reward[:, -1:]
+            loss = nn.functional.mse_loss(predicted_rewards, gt_rewards)
+
         if is_train:
             optimizer.zero_grad()
             loss.backward()
@@ -119,11 +137,15 @@ def run(reward_model: nn.Module, dataloader: DataLoader, device: str, is_train: 
 
         pbar.set_description_str(f'{mode} epoch #{epoch}')
         pbar.set_postfix(loss=loss.item())
-        losses.append(loss.item())
+        metrics['loss'].append(loss.item())
 
     pbar.close()
 
-    return sum(losses) / len(losses)
+    return {key: sum(value) / len(value) for key, value in metrics.items()}
+
+
+def add_prefix(dictionary, prefix):
+    return {prefix + key: value for key, value in dictionary.items()}
 
 
 if __name__ == '__main__':
@@ -144,6 +166,7 @@ if __name__ == '__main__':
     parser.add_argument('--sample_length', type=int, required=True)
     parser.add_argument('--checkpoint_path', type=str, required=True)
     parser.add_argument('--save_every_hours', type=float, default=3)
+    parser.add_argument('--reward_discount', type=float, default=1.0)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision('medium')
@@ -201,15 +224,18 @@ if __name__ == '__main__':
     save_time = time.time() + args.save_every_hours * 60 * 60
     optimizer = torch.optim.Adam(reward_model.parameters(), lr=args.lr,)
     for epoch in itertools.count():
-        train_loss = run(reward_model, train_dataloader, args.device, is_train=True)
-        val_loss = run(reward_model, val_dataloader, args.device, is_train=False)
+        train_metrics = run(reward_model, train_dataloader, args.device, is_train=True, reward_discount=args.reward_discount)
+        val_metrics = run(reward_model, val_dataloader, args.device, is_train=False, reward_discount=args.reward_discount)
         if args.wandb_project:
             if wandb.run is None and args.wandb_project is not None:
                 wandb.init(project=args.wandb_project, group=args.wandb_group, name=args.wandb_run, resume='never',
                            config={**vars(args), **OmegaConf.to_container(config)})
 
             if wandb.run is not None:
-                wandb.log({'epoch': epoch, 'train/loss': train_loss, 'val/loss': val_loss})
+                record = {'epoch': epoch}
+                record.update(add_prefix(train_metrics, prefix='train/'))
+                record.update(add_prefix(val_metrics, prefix='val/'))
+                wandb.log(record)
 
         if time.time() > save_time:
             torch.save({'epoch': epoch, 'model_state_dict': reward_model.state_dict(),
