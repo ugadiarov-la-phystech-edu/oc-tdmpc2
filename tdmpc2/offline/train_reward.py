@@ -117,12 +117,12 @@ def run(reward_model: nn.Module, dataloader: DataLoader, device: str, is_train: 
             predicted_rewards = reward_model(fg, bg, batch.action[:, 0, :, -1].flatten(end_dim=1)).reshape(batch_size, prediction_horizon)
             gt_rewards = batch.reward[:, 0].reshape(batch_size * prediction_horizon, -1).reshape(batch_size, prediction_horizon)
             discount = torch.pow(reward_discount * torch.ones(prediction_horizon, dtype=torch.float32, device=device),
-                                 torch.arange(prediction_horizon, dtype=torch.float32, device=device)).unsqueeze(0)
-            loss = torch.mean(discount * (predicted_rewards - gt_rewards) ** 2, dim=0)
+                                 torch.arange(prediction_horizon, dtype=torch.float32, device=device))
+            loss = torch.mean((predicted_rewards - gt_rewards) ** 2, dim=0)
             for step, step_loss in enumerate(loss):
                 metrics[f'loss_step-{step}'].append(step_loss.item())
 
-            loss = torch.mean(loss)
+            loss = torch.mean(discount * loss)
         else:
             fg = foreground_features(batch)[:, :-1].permute(0, 3, 1, 2, 4).flatten(start_dim=2)
             bg = batch.z_bg[:, :-1].permute(0, 3, 1, 2, 4).flatten(start_dim=2)
