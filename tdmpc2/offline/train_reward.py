@@ -71,13 +71,13 @@ class EITRewardModel(EITCritic):
         super().__init__(cfg, particle_fdim, action_dim, 1, 1, background_fdim)
         self.use_background = cfg.eit_use_background
 
-    def forward(self, x: DatasetItem) -> Tuple[torch.Tensor, ...]:
+    def forward(self, fg, bg, action) -> Tuple[torch.Tensor, ...]:
         if self.use_background:
-            bg = x.bg
+            bg = bg.squeeze(1)
         else:
             bg = None
 
-        return super().forward(x.fg, x.action, bg)[0]
+        return super().forward(fg, action, bg)[0]
 
 
 class MonolithicRewardModel(nn.Module):
