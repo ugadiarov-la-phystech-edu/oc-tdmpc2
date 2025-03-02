@@ -1,9 +1,14 @@
+import traceback
 from copy import deepcopy
 import warnings
+from pathlib import Path
 
 import gym
 import torch
 
+from compas.modules import CompasExtractorAdapter, CompasSlotsExtractorAdapterConfig, DinoEncoderConfig
+from compas.transforms import VFlipObsTransforms
+from envs.wrappers.compas_wrapper import TorchTransformsWrapper, CompassWrapper
 from envs.wrappers.multitask import MultitaskWrapper
 from envs.wrappers.pixels import PixelWrapper
 from envs.wrappers.slots import SlotExtractorWrapper
@@ -79,15 +84,15 @@ def make_env(cfg):
             try:
                 env = fn(cfg)
             except ValueError:
-                pass
+                print(traceback.format_exc())
         if env is None:
             raise ValueError(
                 f'Failed to make environment "{cfg.task}": please verify that dependencies are installed and that the task exists.')
 
     obs_type = cfg.get('obs', 'state')
     if obs_type == 'rgb':
-        env = PixelWrapper(cfg, env)
-    elif obs_type == 'slots':
+        env = PixelWrapper(cfg, env, num_frames=cfg.num_frames, render_size=cfg.obs_size)
+    elif obs_type == 'slots_dinosaur':
         dinosaur = Dinosaur(cfg.dino_model_name, cfg.n_slots, cfg.slot_dim, cfg.input_feature_dim, cfg.num_patches,
                             cfg.features)
         state_dict = torch.load(cfg.slot_extractor_checkpoint_path)['state_dict']
@@ -97,6 +102,38 @@ def make_env(cfg):
         dinosaur = dinosaur.eval()
         slot_extractor = SlotExtractor(model=dinosaur, device=cfg.slot_extractor_device)
         env = SlotExtractorWrapper(cfg, env, slot_extractor)
+    elif obs_type == 'slots_compas':
+        image_size = cfg.obs_size
+        num_slots = cfg.n_slots
+        slots_size = cfg.slot_dim
+        patch_size = 8
+        max_timestep = 4
+        visual_resolution = image_size // patch_size
+        num_patches = visual_resolution ** 2
+        vit_config = DinoEncoderConfig(
+            version=1,
+            model_size="small",
+            resolution=image_size,
+            patch_size=patch_size,
+            frozen=True,
+        )
+        feat_dim = vit_config.resolve_feat_dim()
+        slots_extractor_config = CompasSlotsExtractorAdapterConfig(
+            weights_path=Path(cfg.slot_extractor_checkpoint_path),
+            encoder_config=vit_config,
+            num_slots=num_slots,
+            slots_dim=slots_size,
+            num_layers=4,
+            max_timestep=max_timestep,
+            feat_dim=feat_dim,
+            num_patches=num_patches)
+
+        transforms = VFlipObsTransforms(            resolution=image_size,        )
+        env = TorchTransformsWrapper(env, transforms, cuda=True)
+        compas = CompasExtractorAdapter(
+            **slots_extractor_config.shallow_dump(),
+        ).eval().cuda()
+        env = CompassWrapper(env, compas, has_info=False)
 
     if not cfg.multitask:
         env = TensorWrapper(env)
@@ -107,5 +144,6 @@ def make_env(cfg):
         cfg.obs_shape = {cfg.get('obs', 'state'): env.observation_space.shape}
     cfg.action_dim = env.action_space.shape[0]
     cfg.episode_length = env.max_episode_steps
-    cfg.seed_steps = max(1000, 5 * cfg.episode_length)
+    cfg.seed_steps = cfg.get('seed_steps', max(1000, 5 * cfg.episode_length))
+    assert cfg.seed_steps > 2 * env.max_episode_steps, f'Must have at least two episodes in the buffer'
     return env

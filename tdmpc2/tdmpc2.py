@@ -17,7 +17,7 @@ class TDMPC2:
     def __init__(self, cfg):
         self.cfg = cfg
         self.device = torch.device('cuda')
-        if self.cfg.obs == 'slots':
+        if self.cfg.obs in ('slots_dinosaur', 'slots_compas'):
             self.model = OCWorldModel(cfg).to(self.device)
         else:
             self.model = WorldModel(cfg).to(self.device)
@@ -52,14 +52,18 @@ class TDMPC2:
         frac = episode_length / self.cfg.discount_denom
         return min(max((frac - 1) / (frac), self.cfg.discount_min), self.cfg.discount_max)
 
-    def save(self, fp):
+    def save(self, statistics, fp):
         """
         Save state dict of the agent to filepath.
 
         Args:
+            statistics (dict): Statistics (step, metrics, etc.)
             fp (str): Filepath to save state dict to.
         """
-        torch.save({"model": self.model.state_dict()}, fp)
+        checkpoint = {"model": self.model.state_dict(), "optim": self.optim.state_dict(),
+                      "pi_optim": self.pi_optim.state_dict(), "scale": self.scale.state_dict()}
+        checkpoint.update(statistics)
+        torch.save(checkpoint, fp)
 
     def load(self, fp):
         """
@@ -70,6 +74,9 @@ class TDMPC2:
         """
         state_dict = fp if isinstance(fp, dict) else torch.load(fp)
         self.model.load_state_dict(state_dict["model"])
+        self.optim.load_state_dict(state_dict["optim"])
+        self.pi_optim.load_state_dict(state_dict["pi_optim"])
+        self.scale.load_state_dict(state_dict["scale"])
 
     @torch.no_grad()
     def act(self, obs, t0=False, eval_mode=False, task=None):

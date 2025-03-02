@@ -109,6 +109,7 @@ class Logger:
         self._model_dir = make_dir(self._log_dir / "models")
         self._save_csv = cfg.save_csv
         self._save_agent = cfg.save_agent
+        self._save_checkpoint_wandb = cfg.save_checkpoint_wandb
         self._group = cfg_to_group(cfg)
         self._seed = cfg.seed
         self._eval = []
@@ -117,6 +118,7 @@ class Logger:
         self.entity = cfg.get("wandb_entity", "none")
         self.run_name = f'{cfg.get("wandb_run_name", str(datetime.datetime.now()))}_{str(cfg.seed)}'
         self.group_name = cfg.get("wandb_group_name", self._group)
+        self.run_id = cfg.get("wandb_run_id", None)
         if cfg.disable_wandb or self.project == "none" or self.entity == "none":
             print(colored("Wandb disabled.", "blue", attrs=["bold"]))
             cfg.save_agent = False
@@ -127,6 +129,11 @@ class Logger:
         os.environ["WANDB_SILENT"] = "true" if cfg.wandb_silent else "false"
         import wandb
 
+        config_dict = OmegaConf.to_container(cfg, resolve=True)
+        slurm_job_id_env_key = 'SLURM_JOB_ID'
+        if slurm_job_id_env_key in os.environ:
+            config_dict[slurm_job_id_env_key] = os.environ[slurm_job_id_env_key]
+
         wandb.init(
             project=self.project,
             entity=self.entity,
@@ -134,7 +141,9 @@ class Logger:
             group=self.group_name,
             tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
             dir=self._log_dir,
-            config=OmegaConf.to_container(cfg, resolve=True),
+            config=config_dict,
+            resume="must" if self.run_id else "never",
+            id=self.run_id if self.run_id else None,
         )
         print(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
         self._wandb = wandb
@@ -152,11 +161,13 @@ class Logger:
     def model_dir(self):
         return self._model_dir
 
-    def save_agent(self, agent=None, identifier='final'):
+    def save_agent(self, agent=None, statistics={}, identifier='final', buffer=None):
         if self._save_agent and agent:
             fp = self._model_dir / f'{str(identifier)}.pt'
-            agent.save(fp)
-            if self._wandb:
+            agent.save(statistics, fp)
+            buffer_path = self._model_dir / f'{str(identifier)}.buf'
+            buffer.dumps(buffer_path)
+            if self._wandb and self._save_checkpoint_wandb:
                 artifact = self._wandb.Artifact(
                     self._group + '-' + str(self._seed) + '-' + str(identifier),
                     type='model',

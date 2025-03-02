@@ -305,7 +305,7 @@ def enc(cfg, out={}):
                          cfg.latent_dim, act=SimNorm(cfg))
         elif k == 'rgb':
             out[k] = conv(cfg.obs_shape[k], cfg.num_channels, act=SimNorm(cfg))
-        elif k == 'slots':
+        elif k in ('slots_compas', 'slots_dinosaur'):
             out[k] = nn.Identity()
         else:
             raise NotImplementedError(f"Encoder for observation type {k} not implemented.")

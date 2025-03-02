@@ -17,9 +17,12 @@ class TensorWrapper(gym.Wrapper):
         return torch.from_numpy(self.action_space.sample().astype(np.float32))
 
     def _try_f32_tensor(self, x):
-        x = torch.from_numpy(x)
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x)
+
         if x.dtype == torch.float64:
             x = x.float()
+
         return x
 
     def _obs_to_tensor(self, obs):

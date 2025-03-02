@@ -15,22 +15,36 @@ class OnlineTrainer(Trainer):
         self._step = 0
         self._ep_idx = 0
         self._start_time = time()
+        self._tds = None
+        if self.cfg.get('checkpoint', None):
+            print(f'Loading checkpoint: {self.cfg.checkpoint}')
+            state_dict = torch.load(self.cfg.checkpoint)
+            self.agent.load(state_dict)
+            self._step = state_dict['step']
+            self._ep_idx = state_dict['episode']
+            self.buffer.num_eps = state_dict['episode']
+            self._start_time = time() - state_dict['total_time']
 
     def common_metrics(self):
         """Return a dictionary of current metrics."""
+        total_time = time() - self._start_time
         return dict(
             step=self._step,
             episode=self._ep_idx,
-            total_time=time() - self._start_time,
+            total_time=total_time,
+            fps= self._step / total_time
         )
 
     def eval(self):
         """Evaluate a TD-MPC2 agent."""
         ep_rewards, ep_successes = [], []
+        total_time = 0
+        total_steps = 0
         for i in range(self.cfg.eval_episodes):
             obs, done, ep_reward, t = self.env.reset(), False, 0, 0
             if self.cfg.save_video:
                 self.logger.video.init(self.env, enabled=(i == 0))
+            start_time = time()
             while not done:
                 action = self.agent.act(obs, t0=t == 0, eval_mode=True)
                 obs, reward, done, info = self.env.step(action)
@@ -40,11 +54,14 @@ class OnlineTrainer(Trainer):
                     self.logger.video.record(self.env)
             ep_rewards.append(ep_reward)
             ep_successes.append(info['success'])
+            total_time += time() - start_time
+            total_steps += t
             if self.cfg.save_video:
                 self.logger.video.save(self._step)
         return dict(
             episode_reward=np.nanmean(ep_rewards),
             episode_success=np.nanmean(ep_successes),
+            fps=total_steps / total_time,
         )
 
     def to_td(self, obs, action=None, reward=None):
@@ -66,11 +83,12 @@ class OnlineTrainer(Trainer):
 
     def train(self):
         """Train a TD-MPC2 agent."""
-        train_metrics, done, eval_next = {}, True, True
+        train_metrics, done, eval_next = {}, True, self.cfg.eval_freq > 0
+        next_save_step = self._step + self.cfg.save_every
         while self._step <= self.cfg.steps:
 
             # Evaluate agent periodically
-            if self._step % self.cfg.eval_freq == 0:
+            if self.cfg.eval_freq > 0 and self._step % self.cfg.eval_freq == 0:
                 eval_next = True
 
             # Reset environment
@@ -81,7 +99,7 @@ class OnlineTrainer(Trainer):
                     self.logger.log(eval_metrics, 'eval')
                     eval_next = False
 
-                if self._step > 0:
+                if self._tds is not None:
                     train_metrics.update(
                         episode_reward=torch.tensor([td['reward'] for td in self._tds[1:]]).sum(),
                         episode_success=info['success'],
@@ -92,6 +110,8 @@ class OnlineTrainer(Trainer):
 
                 obs = self.env.reset()
                 self._tds = [self.to_td(obs)]
+                if not self.buffer.is_initialized():
+                    self.buffer.init(torch.cat(self._tds))
 
             # Collect experience
             if self._step > self.cfg.seed_steps:
@@ -111,6 +131,10 @@ class OnlineTrainer(Trainer):
                 for _ in range(num_updates):
                     _train_metrics = self.agent.update(self.buffer)
                 train_metrics.update(_train_metrics)
+
+            if self._step > next_save_step:
+                next_save_step += self.cfg.save_every
+                self.logger.save_agent(self.agent, statistics=self.common_metrics(), identifier='checkpoint', buffer=self.buffer)
 
             self._step += 1
 
