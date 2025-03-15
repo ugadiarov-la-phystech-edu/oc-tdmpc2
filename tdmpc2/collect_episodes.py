@@ -1,12 +1,8 @@
 import os
 import random
 
-import imageio
-import numpy as np
-from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
+import wandb
 from tqdm import tqdm
-
-from envs.wrappers.collect_episodes_wrapper import CollectEpisodes
 
 os.environ['MUJOCO_GL'] = 'egl'
 os.environ['LAZY_LEGACY_OP'] = '0'
@@ -16,16 +12,10 @@ warnings.filterwarnings('ignore')
 import torch
 
 import hydra
-from termcolor import colored
 
 from common.parser import parse_cfg
-from common.seed import set_seed
-from common.buffer import Buffer
 from envs import make_env
 from tdmpc2 import TDMPC2
-from trainer.offline_trainer import OfflineTrainer
-from trainer.online_trainer import OnlineTrainer
-from common.logger import Logger
 
 torch.backends.cudnn.benchmark = True
 
@@ -51,6 +41,7 @@ def collect(cfg: dict):
         state_dict = torch.load(cfg.checkpoint)
         agent.load(state_dict)
 
+    run = wandb.init(project=cfg.wandb_project, name=cfg.wandb_run_name)
     total_episodes = cfg.n_train_episodes + cfg.n_val_episodes
     for episode_id in tqdm(range(total_episodes), position=tqdm._get_free_pos(), desc='# Run episodes'):
         epsilon = schedule(episode_id, start_episode=0, end_episode=total_episodes - 1,
@@ -71,7 +62,14 @@ def collect(cfg: dict):
             ep_reward += reward
             t += 1
 
+        record = {'return': ep_reward}
+        if 'success' in info:
+            record['success'] = info['success']
+
+        run.log(record)
+
     env.close()
+    run.finish()
 
 
 if __name__ == '__main__':
