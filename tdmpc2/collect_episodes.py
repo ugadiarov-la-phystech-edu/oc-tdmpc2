@@ -2,6 +2,7 @@ import os
 import random
 
 import wandb
+from omegaconf import OmegaConf
 from tqdm import tqdm
 
 os.environ['MUJOCO_GL'] = 'egl'
@@ -41,7 +42,8 @@ def collect(cfg: dict):
         state_dict = torch.load(cfg.checkpoint)
         agent.load(state_dict)
 
-    run = wandb.init(project=cfg.wandb_project, name=cfg.wandb_run_name)
+    run = wandb.init(project=cfg.wandb_project, name=cfg.wandb_run_name,
+                     config=OmegaConf.to_container(cfg, resolve=True))
     total_episodes = cfg.n_train_episodes + cfg.n_val_episodes
     for episode_id in tqdm(range(total_episodes), position=tqdm._get_free_pos(), desc='# Run episodes'):
         epsilon = schedule(episode_id, start_episode=0, end_episode=total_episodes - 1,
