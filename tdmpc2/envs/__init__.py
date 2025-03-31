@@ -180,11 +180,11 @@ def make_env(cfg, **kwargs):
             config = json.load(file_obj)
 
         if cfg.transition_model_type == 'ddlp':
-            env = DynamicDDLPExtractorWrapper(env, ddlp, device='cuda', num_static_frames=config['num_static_frames'],
+            env = DynamicDDLPExtractorWrapper(env, ddlp, device=cfg.device, num_static_frames=config['num_static_frames'],
                                               train_enc_prior=config['train_enc_prior'],
                                               save_folder=kwargs.get('save_folder', None))
         elif cfg.transition_model_type == 'gnn':
-            env = StaticDDLPExtractorWrapper(env, ddlp, device='cuda', num_static_frames=config['num_static_frames'],
+            env = StaticDDLPExtractorWrapper(env, ddlp, device=cfg.device, num_static_frames=config['num_static_frames'],
                                              train_enc_prior=config['train_enc_prior'], num_frames=cfg.num_frames)
         else:
             assert False

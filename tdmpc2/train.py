@@ -55,6 +55,7 @@ def train(cfg: dict):
     cfg = parse_cfg(cfg)
     set_seed(cfg.seed)
     print(colored('Work dir:', 'yellow', attrs=['bold']), cfg.work_dir)
+    print(f'Using device: {cfg.device}')
 
     trainer_cls = OfflineTrainer if cfg.multitask else OnlineTrainer
     model = None
@@ -63,7 +64,7 @@ def train(cfg: dict):
         checkpoint_path = cfg.ddlp_checkpoint_path
         model = create_ddlp(config_path)
         model = load_checkpoint(model, checkpoint_path)
-        model = model.to('cuda')
+        model = model.to(cfg.device)
         model = model.eval()
         model.requires_grad_(False)
         cfg.action_dim = model.action_dim

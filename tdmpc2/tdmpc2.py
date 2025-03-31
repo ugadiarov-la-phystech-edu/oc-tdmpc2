@@ -17,7 +17,7 @@ class TDMPC2:
 
     def __init__(self, cfg, ddlp_model=None):
         self.cfg = cfg
-        self.device = torch.device('cuda')
+        self.device = torch.device(self.cfg.device)
         if self.cfg.obs == 'slots':
             self.model = OCWorldModel(cfg).to(self.device)
         elif self.cfg.obs == 'ddlp':
@@ -42,7 +42,7 @@ class TDMPC2:
         self.scale = RunningScale(cfg)
         self.cfg.iterations += 2 * int(cfg.action_dim >= 20)  # Heuristic for large action spaces
         self.discount = torch.tensor(
-            [self._get_discount(ep_len) for ep_len in cfg.episode_lengths], device='cuda'
+            [self._get_discount(ep_len) for ep_len in cfg.episode_lengths], device=self.cfg.device
         ) if self.cfg.multitask else self._get_discount(cfg.episode_length)
 
     def _get_discount(self, episode_length):
