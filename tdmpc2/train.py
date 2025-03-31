@@ -21,6 +21,9 @@ from common.logger import Logger
 
 torch.backends.cudnn.benchmark = True
 
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
+
 
 @hydra.main(config_name='config', config_path='.')
 def train(cfg: dict):
