@@ -325,7 +325,7 @@ class SlotExtractor:
         if batch_prev_slots is not None:
             batch_prev_slots = obs_to_tensor(batch_prev_slots, self._device)
 
-        slots = self._model(batch_images, prev_slots=batch_prev_slots).detach()
+        slots = self._model.get_slots(batch_images, batch_prev_slots).detach()
         if len(images.shape) == 3:
             slots = slots[0]
 
@@ -391,6 +391,9 @@ class Dinosaur(torch.nn.Module):
 
     def get_slots_dim(self):
         return self._n_slots, self._slot_dim
+
+    def get_slots(self, image, prev_slots=None):
+        return self(image, prev_slots)
 
     def forward(self, image, prev_slots=None):
         image = self._normalization(image)

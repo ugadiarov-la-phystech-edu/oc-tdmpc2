@@ -9,7 +9,7 @@ class SlotExtractorWrapper(gym.Wrapper):
 
     def __init__(self, cfg, env, slot_extractor):
         super().__init__(env)
-        image_shape = (224, 224, 3)
+        image_shape = (cfg.obs_size, cfg.obs_size, 3)
         assert env.observation_space.shape == image_shape, f'Expected image shape: {image_shape}. Actual image shape: {env.observation_space.shape}'
 
         self.cfg = cfg

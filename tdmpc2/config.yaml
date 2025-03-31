@@ -85,14 +85,35 @@ save_every: 10000
 save_checkpoint_wandb: false
 
 # slot extractor
-dino_model_name: vit_base_patch16_224_dino
+slot_extractor_model: akornsaur
 n_slots: 5
 slot_dim: 64
+slot_extractor_checkpoint_path: ???
+slot_extractor_device: cuda
+
+# dinosaur
+dino_model_name: vit_base_patch16_224_dino
 input_feature_dim: 768
 num_patches: 196
 features: [ 2048, 2048, 2048 ]
-slot_extractor_checkpoint_path: ???
-slot_extractor_device: cuda
+
+# akornsaur
+L: 2
+ch: 256
+autorescale: true
+psize: 8
+T: 8
+maxpool: true
+heads: 8
+gta: true
+N: 4
+J: attn
+use_omega: false
+global_omg: false
+c_norm: gn
+use_ro_x: false
+no_ro: false
+project: true
 
 # oc world model
 use_interactions: true

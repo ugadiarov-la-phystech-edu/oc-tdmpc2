@@ -14,9 +14,7 @@ import torch
 from envs.wrappers.ddlp import DynamicDDLPExtractorWrapper, StaticDDLPExtractorWrapper
 from envs.wrappers.multitask import MultitaskWrapper
 from envs.wrappers.pixels import PixelWrapper
-from envs.wrappers.slots import SlotExtractorWrapper
 from envs.wrappers.tensor import TensorWrapper
-from ocr.tools import Dinosaur, SlotExtractor
 
 
 def missing_dependencies(task):
@@ -104,14 +102,75 @@ def make_env(cfg, **kwargs):
     if obs_type == 'rgb':
         env = PixelWrapper(cfg, env, num_frames=cfg.num_frames, render_size=cfg.obs_size)
     elif obs_type == 'slots':
-        dinosaur = Dinosaur(cfg.dino_model_name, cfg.n_slots, cfg.slot_dim, cfg.input_feature_dim, cfg.num_patches,
-                            cfg.features)
-        state_dict = torch.load(cfg.slot_extractor_checkpoint_path)['state_dict']
-        state_dict = {key[len('models.'):]: value for key, value in state_dict.items()}
-        dinosaur.load_state_dict(state_dict)
-        dinosaur = dinosaur.requires_grad_(False)
-        dinosaur = dinosaur.eval()
-        slot_extractor = SlotExtractor(model=dinosaur, device=cfg.slot_extractor_device)
+        from envs.wrappers.slots import SlotExtractorWrapper
+        from ocr.tools import SlotExtractor
+
+        slot_extractor_model = cfg['slot_extractor_model']
+        if slot_extractor_model == 'dinosaur':
+            from ocr.tools import Dinosaur
+
+            sa_model = Dinosaur(cfg.dino_model_name, cfg.n_slots, cfg.slot_dim, cfg.input_feature_dim, cfg.num_patches,
+                                cfg.features)
+            state_dict = torch.load(cfg.slot_extractor_checkpoint_path)['state_dict']
+            state_dict = {key[len('models.'):]: value for key, value in state_dict.items()}
+            sa_model.load_state_dict(state_dict)
+        elif slot_extractor_model == 'akornsaur':
+            from ema_pytorch import EMA
+            from ocr.akorn.source.models.objs.knet import AKOrN
+            from ocr.akorn.source.models.slot_attention.akornsaur import AkornSAur
+            from ocr.akorn.source.models.slot_attention.decoders import MLPDecoder
+            from ocr.akorn.source.models.slot_attention.initializers import RandomInit
+            from ocr.akorn.source.models.slot_attention.networks import MLP
+            from ocr.akorn.source.models.slot_attention.slot_attention import SlotAttention
+
+            n_patches = (cfg.obs_size // cfg.psize) ** 2
+            encoder = AKOrN(
+                cfg.N,
+                ch=cfg.ch,
+                L=cfg.L,
+                T=cfg.T,
+                J=cfg.J,
+                use_omega=cfg.use_omega,
+                global_omg=cfg.global_omg,
+                c_norm=cfg.c_norm,
+                psize=cfg.psize,
+                imsize=cfg.obs_size,
+                autorescale=cfg.autorescale,
+                maxpool=cfg.maxpool,
+                project=cfg.project,
+                heads=cfg.heads,
+                use_ro_x=cfg.use_ro_x,
+                no_ro=cfg.no_ro,
+                gta=cfg.gta,
+            )
+
+            encoder = EMA(encoder)
+            encoder = encoder.ema_model
+
+            features_projector = MLP(
+                inp_dim=256,
+                outp_dim=cfg.slot_dim,
+                hidden_dims=[2 * 256],
+                initial_layer_norm=True, )
+
+            initializer = RandomInit(n_slots=cfg.n_slots, dim=cfg.slot_dim)
+            slot_attention = SlotAttention(
+                inp_dim=cfg.slot_dim,
+                slot_dim=cfg.slot_dim,
+                n_iters=3,
+                use_mlp=True, )
+
+            decoder = MLPDecoder(inp_dim=cfg.slot_dim, outp_dim=256, hidden_dims=[512, 512, 512], n_patches=n_patches)
+            sa_model = AkornSAur(encoder, features_projector, initializer, slot_attention, decoder,
+                                  is_encoder_frozen=True)
+            weights = torch.load(cfg.slot_extractor_checkpoint_path, weights_only=True)['model']
+            sa_model.load_state_dict(weights)
+        else:
+            raise ValueError(f'Unexpected slot_extractor_model={slot_extractor_model}')
+
+        sa_model = sa_model.requires_grad_(False)
+        sa_model = sa_model.eval()
+        slot_extractor = SlotExtractor(model=sa_model, device=cfg.slot_extractor_device)
         env = SlotExtractorWrapper(cfg, env, slot_extractor)
     elif obs_type == 'ddlp':
         ddlp = kwargs['extractor']
