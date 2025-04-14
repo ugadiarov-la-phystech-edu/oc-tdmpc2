@@ -1,4 +1,4 @@
-from pydantic_conf.base_config import BaseConfig
+from compas.base_config import BaseConfig
 
 
 class DefaultObsTransformsConfig(BaseConfig):

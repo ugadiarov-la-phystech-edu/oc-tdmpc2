@@ -45,6 +45,10 @@ try:
     from envs.robosuite_env import make_env as make_robosuite_env
 except:
     make_robosuite_env = missing_dependencies
+try:
+    from compas.utils import make_cw_compas_env
+except:
+    make_cw_compas_env = missing_dependencies
 
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
@@ -81,7 +85,7 @@ def make_env(cfg):
     else:
         env = None
         for fn in [make_dm_control_env, make_maniskill_env, make_metaworld_env, make_myosuite_env, make_maniskill3_env,
-                   make_robosuite_env]:
+                   make_robosuite_env, make_cw_compas_env]:
             try:
                 env = fn(cfg)
             except ValueError:
@@ -106,38 +110,6 @@ def make_env(cfg):
         dinosaur = dinosaur.eval()
         slot_extractor = SlotExtractor(model=dinosaur, device=cfg.slot_extractor_device)
         env = SlotExtractorWrapper(cfg, env, slot_extractor)
-    elif obs_type == 'slots_compas':
-        image_size = cfg.obs_size
-        num_slots = cfg.n_slots
-        slots_size = cfg.slot_dim
-        patch_size = 8
-        max_timestep = 4
-        visual_resolution = image_size // patch_size
-        num_patches = visual_resolution ** 2
-        vit_config = DinoEncoderConfig(
-            version=1,
-            model_size="small",
-            resolution=image_size,
-            patch_size=patch_size,
-            frozen=True,
-        )
-        feat_dim = vit_config.resolve_feat_dim()
-        slots_extractor_config = CompasSlotsExtractorAdapterConfig(
-            weights_path=Path(cfg.slot_extractor_checkpoint_path),
-            encoder_config=vit_config,
-            num_slots=num_slots,
-            slots_dim=slots_size,
-            num_layers=4,
-            max_timestep=max_timestep,
-            feat_dim=feat_dim,
-            num_patches=num_patches)
-
-        transforms = VFlipObsTransforms(            resolution=image_size,        )
-        env = TorchTransformsWrapper(env, transforms, cuda=True)
-        compas = CompasExtractorAdapter(
-            **slots_extractor_config.shallow_dump(),
-        ).eval().cuda()
-        env = CompassWrapper(env, compas, has_info=False)
 
     if not cfg.multitask:
         env = TensorWrapper(env)

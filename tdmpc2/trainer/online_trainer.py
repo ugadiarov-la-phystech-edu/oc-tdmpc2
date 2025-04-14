@@ -45,8 +45,10 @@ class OnlineTrainer(Trainer):
             if self.cfg.save_video:
                 self.logger.video.init(self.env, enabled=(i == 0))
             start_time = time()
+            assert self.cfg.num_frames == obs.size()[0]
+            action_stack = torch.zeros(self.cfg.num_frames, *self.env.action_space.shape, device=obs.device, dtype=torch.float32)
             while not done:
-                action = self.agent.act(obs, t0=t == 0, eval_mode=True)
+                action = self.agent.act(obs, action_stack, t0=t == 0, eval_mode=True)
                 obs, reward, done, info = self.env.step(action)
                 ep_reward += reward
                 t += 1
@@ -71,7 +73,12 @@ class OnlineTrainer(Trainer):
         else:
             obs = obs.unsqueeze(0).cpu()
         if action is None:
-            action = torch.full_like(self.env.rand_act(), float('nan'))
+            shape = self.env.rand_act().shape
+            if len(obs.size()) == 4:
+                action = torch.full(size=(obs.size()[0], *shape), fill_value=float('nan'))
+            else:
+                action = torch.full(size=shape, fill_value=float('nan'))
+
         if reward is None:
             reward = torch.tensor(float('nan'))
         td = TensorDict(dict(
@@ -119,7 +126,7 @@ class OnlineTrainer(Trainer):
             else:
                 action = self.env.rand_act()
             obs, reward, done, info = self.env.step(action)
-            self._tds.append(self.to_td(obs, action, reward))
+            self._tds.append(self.to_td(obs, torch.as_tensor(info['action']), reward))
 
             # Update agent
             if self._step >= self.cfg.seed_steps:

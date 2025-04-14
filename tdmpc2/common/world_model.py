@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 
 from common import layers, math, init
+from compas.transition_compas import CompasDynamicsModel
+from compas.utils import create_transition_model
 
 
 class WorldModel(nn.Module):
@@ -175,7 +177,7 @@ class WorldModel(nn.Module):
         return torch.min(Q1, Q2) if return_type == 'min' else (Q1 + Q2) / 2
 
 
-class OCDynamicsModel(nn.Module):
+class OCGNNDynamicsModel(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
@@ -185,6 +187,19 @@ class OCDynamicsModel(nn.Module):
 
     def forward(self, slots, action):
         return self.gnn(slots, action)
+
+
+class OCCompasDynamicsModel:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self._compas_dynamics_mode = create_transition_model('cuda', self.cfg.compas_dynamics_checkpoint_path)
+
+    def __call__(self, slots, action):
+        next_slots = self._compas_dynamics_mode.predict_trajectory(slots, action, length=1)
+        return torch.cat([slots[:, 1:], next_slots], dim=1)
+
+    def parameters(self):
+        return []
 
 
 class OCRewardModel(nn.Module):
@@ -229,7 +244,10 @@ class OCWorldModel(nn.Module):
         assert not cfg.multitask, f'Multitasking is not implemented for slot-based observations.'
 
         self._encoder = layers.enc(cfg)
-        self._dynamics = OCDynamicsModel(self.cfg)
+        if self.cfg.obs == 'slots_compas':
+            self._dynamics = OCCompasDynamicsModel(self.cfg)
+        else:
+            self._dynamics = OCGNNDynamicsModel(self.cfg)
         self._reward = OCRewardModel(self.cfg)
         self._pi = OCPolicy(self.cfg)
         self._Qs = nn.ModuleList([OCRewardModel(self.cfg) for _ in range(cfg.num_q)])

@@ -76,6 +76,9 @@ wandb_silent: false
 disable_wandb: true
 save_csv: true
 
+# CausalWorld
+difficulty: ???
+
 # misc
 save_video: true
 save_agent: true
@@ -84,14 +87,26 @@ save_every: 10000
 save_checkpoint_wandb: false
 
 # slot extractor
-dino_model_name: vit_base_patch16_224_dino
 n_slots: 5
 slot_dim: 64
+slot_extractor_checkpoint_path: ???
+
+# dinosaur
+dino_model_name: vit_base_patch16_224_dino
 input_feature_dim: 768
 num_patches: 196
 features: [ 2048, 2048, 2048 ]
-slot_extractor_checkpoint_path: ???
 slot_extractor_device: cuda
+
+# compas dynamics
+compas_dynamics_checkpoint_path: ???
+compas_tokens_dim: ???
+compas_max_timestep: ???
+compas_projected_actions_dim: ???
+compas_num_heads: ???
+compas_num_layers: ???
+compas_hidden_mult: ???
+compas_parallel: ???
 
 # convenience
 work_dir: ???

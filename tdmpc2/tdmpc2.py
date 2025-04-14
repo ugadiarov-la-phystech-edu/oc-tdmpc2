@@ -79,7 +79,7 @@ class TDMPC2:
         self.scale.load_state_dict(state_dict["scale"])
 
     @torch.no_grad()
-    def act(self, obs, t0=False, eval_mode=False, task=None):
+    def act(self, obs, action_stack, t0=False, eval_mode=False, task=None):
         """
         Select an action by planning in the latent space of the world model.
 
@@ -97,9 +97,9 @@ class TDMPC2:
             task = torch.tensor([task], device=self.device)
         z = self.model.encode(obs, task)
         if self.cfg.mpc:
-            a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
+            a = self.plan(z, action_stack, t0=t0, eval_mode=eval_mode, task=task)
         else:
-            a = self.model.pi(z, task)[int(not eval_mode)][0]
+            a = self.model.pi(z[-1], task)[int(not eval_mode)][0]
         return a.cpu()
 
     @torch.no_grad()
@@ -114,7 +114,7 @@ class TDMPC2:
         return G + discount * self.model.Q(z, self.model.pi(z, task)[1], task, return_type='avg')
 
     @torch.no_grad()
-    def plan(self, z, t0=False, eval_mode=False, task=None):
+    def plan(self, z, action_stack, t0=False, eval_mode=False, task=None):
         """
         Plan a sequence of actions using the learned world model.
 
@@ -129,20 +129,24 @@ class TDMPC2:
         """
         # Sample policy trajectories
         if self.cfg.num_pi_trajs > 0:
-            pi_actions = torch.empty(self.cfg.horizon, self.cfg.num_pi_trajs, self.cfg.action_dim, device=self.device)
+            pi_actions = torch.empty(self.cfg.horizon, self.cfg.num_pi_trajs, *action_stack.size(), device=self.device)
+            pi_actions[0, :, :-1] = action_stack[:-1]
             _z = torch.repeat_interleave(z, repeats=self.cfg.num_pi_trajs, dim=0)
             for t in range(self.cfg.horizon - 1):
-                pi_actions[t] = self.model.pi(_z, task)[1]
+                pi_actions[t, :, -1] = self.model.pi(_z[:, -1], task)[1]
                 _z = self.model.next(_z, pi_actions[t], task)
-            pi_actions[-1] = self.model.pi(_z, task)[1]
+                pi_actions[t + 1, :, :-1] = pi_actions[t, :, 1:]
+            pi_actions[-1, :, -1] = self.model.pi(_z[:, -1], task)[1]
 
         # Initialize state and parameters
         z = torch.repeat_interleave(z, repeats=self.cfg.num_samples, dim=0)
-        mean = torch.zeros(self.cfg.horizon, self.cfg.action_dim, device=self.device)
-        std = self.cfg.max_std * torch.ones(self.cfg.horizon, self.cfg.action_dim, device=self.device)
+        mean = torch.zeros(self.cfg.horizon, *action_stack.size(), device=self.device)
+        std = self.cfg.max_std * torch.ones(self.cfg.horizon, *action_stack.size(), device=self.device)
         if not t0:
             mean[:-1] = self._prev_mean[1:]
-        actions = torch.empty(self.cfg.horizon, self.cfg.num_samples, self.cfg.action_dim, device=self.device)
+            mean[-1, :-1] = mean[-2, 1:]
+        actions = torch.empty(self.cfg.horizon, self.cfg.num_samples, *action_stack.size(), device=self.device)
+        # TODO: Check consistency in actions
         if self.cfg.num_pi_trajs > 0:
             actions[:, :self.cfg.num_pi_trajs] = pi_actions
 
@@ -150,7 +154,7 @@ class TDMPC2:
         for _ in range(self.cfg.iterations):
 
             # Sample actions
-            actions[:, self.cfg.num_pi_trajs:] = (mean.unsqueeze(1) + std.unsqueeze(1) * \
+            actions[:, self.cfg.num_pi_trajs:, -1] = (mean.unsqueeze(1) + std.unsqueeze(1) * \
                                                   torch.randn(self.cfg.horizon,
                                                               self.cfg.num_samples - self.cfg.num_pi_trajs,
                                                               self.cfg.action_dim, device=std.device)) \
@@ -244,7 +248,7 @@ class TDMPC2:
         Returns:
             dict: Dictionary of training statistics.
         """
-        obs, action, reward, task = buffer.sample()
+        obs, action, reward, pads, task = buffer.sample()
 
         # Compute targets
         with torch.no_grad():

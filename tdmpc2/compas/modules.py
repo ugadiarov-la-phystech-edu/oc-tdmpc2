@@ -4,9 +4,9 @@ from typing_extensions import Self
 import torch
 from torch import nn
 
+from compas.base_config import BaseConfig
 from compas.dino import DINOEncoder
 from compas.transformer_compas import ExtractorModel
-from pydantic_conf.base_config import BaseConfig
 
 
 def resolve_path(path_var):

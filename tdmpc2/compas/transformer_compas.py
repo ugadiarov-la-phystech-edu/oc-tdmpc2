@@ -132,8 +132,6 @@ class ExtractorModel(nn.Module):
 
         return in_slots + self.mlp_out(slots), attn_vis
 
-    #
-
 
 class COMPAS(nn.Module):
     def __init__(self,
