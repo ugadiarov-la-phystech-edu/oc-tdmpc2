@@ -56,6 +56,9 @@ class AkornSAur(nn.Module):
 
         return {'features': features, 'slot_attention': slot_attention_output, 'decoder': decoder_output}
 
+    def get_decoder_masks_by_slots(self, images: torch.Tensor, slots: torch.Tensor):
+        return self.process_masks(self.decoder(slots)["masks"], images)
+
     def get_slots(self, images: torch.Tensor, slots_initial: torch.Tensor = None):
         _, slot_attention_output = self._get_features_slot_attention(images, slots_initial)
         return slot_attention_output['slots']

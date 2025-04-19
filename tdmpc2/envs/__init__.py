@@ -153,7 +153,13 @@ def make_env(cfg, **kwargs):
                 hidden_dims=[2 * 256],
                 initial_layer_norm=True, )
 
-            initializer = RandomInit(n_slots=cfg.n_slots, dim=cfg.slot_dim)
+            initializer = RandomInit(
+                n_slots=cfg.n_slots,
+                dim=cfg.slot_dim,
+                per_slot_initialization=cfg.per_slot_initialization,
+                deterministic_initialization=cfg.deterministic_initialization
+            )
+
             slot_attention = SlotAttention(
                 inp_dim=cfg.slot_dim,
                 slot_dim=cfg.slot_dim,

@@ -13,6 +13,7 @@ import numpy as np
 from pathlib import Path
 from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import adjusted_rand_score
+from torchvision.utils import make_grid
 
 from ocr.dinosaur.decoding import PatchDecoder
 from ocr.dinosaur.neural_networks import build_two_layer_mlp, build_mlp
@@ -299,6 +300,16 @@ def obs_to_tensor(obs, device):
         return torch.Tensor(obs.transpose(0, 3, 1, 2)).to(device) / 255.0
     else:
         return torch.Tensor(obs).to(device)
+
+
+def grid_numpy(batch_images, batch_decoder_masks):
+    images = batch_images.unsqueeze(1)
+    masks = batch_decoder_masks.unsqueeze(2)
+    log_image = torch.cat([images, images * masks + (1 - masks)], dim=1)
+    log_image = make_grid(log_image[0], nrow=log_image.size()[1], pad_value=0.5).movedim(0, -1).detach().cpu().numpy()
+    log_image = 255 * log_image
+
+    return log_image.astype(np.uint8)
 
 
 class SlotExtractor:

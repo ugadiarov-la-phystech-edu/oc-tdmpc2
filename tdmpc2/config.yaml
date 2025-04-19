@@ -85,12 +85,17 @@ seed: 1
 save_every: 10000
 save_checkpoint_wandb: false
 
+# slot extractor wrapper
+pre_initialize_slots: false
+
 # slot extractor
 slot_extractor_model: akornsaur
 n_slots: 5
 slot_dim: 64
 slot_extractor_checkpoint_path: ???
 slot_extractor_device: cuda
+per_slot_initialization: true
+deterministic_initialization: true
 
 # dinosaur
 dino_model_name: vit_base_patch16_224_dino

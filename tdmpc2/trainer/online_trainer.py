@@ -4,6 +4,8 @@ import numpy as np
 import torch
 from tensordict.tensordict import TensorDict
 
+from envs.wrappers.slots import SlotExtractorWrapper
+from ocr.tools import grid_numpy
 from trainer.base import Trainer
 
 
@@ -41,10 +43,12 @@ class OnlineTrainer(Trainer):
         total_time = 0
         total_steps = 0
         for i in range(self.cfg.eval_episodes):
+            observations = []
             obs, done, ep_reward, t = self.env.reset(), False, 0, 0
             if self.cfg.save_video:
                 self.logger.video.init(self.env, enabled=(i == 0))
             start_time = time()
+            observations.append(obs)
             while not done:
                 previous_actions = None
                 if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type != 'gnn':
@@ -52,6 +56,7 @@ class OnlineTrainer(Trainer):
 
                 action = self.agent.act(obs, t0=t == 0, eval_mode=True, prev_actions=previous_actions)
                 obs, reward, done, info = self.env.step(action)
+                observations.append(obs)
                 ep_reward += reward
                 t += 1
                 if self.cfg.save_video:
@@ -62,6 +67,21 @@ class OnlineTrainer(Trainer):
             total_steps += t
             if self.cfg.save_video:
                 self.logger.video.save(self._step)
+
+            if self.cfg.save_video and i == 0 and isinstance(self.env.env, SlotExtractorWrapper):
+                model = self.env.slot_extractor._model
+                images_with_masks = []
+                for slot, image in zip(observations, info['episode_images']):
+                    batch_slot = torch.as_tensor(slot, device='cuda').unsqueeze(0)
+                    batch_image = torch.as_tensor(image / 255., device='cuda', dtype=torch.float32).movedim(-1, 0).unsqueeze(0)
+                    _, batch_decoder_masks = model.get_decoder_masks_by_slots(batch_image, batch_slot)
+                    image_with_masks = grid_numpy(batch_image, batch_decoder_masks)
+                    images_with_masks.append(image_with_masks)
+
+                self.logger.video.enabled = True
+                self.logger.video.frames = images_with_masks
+                self.logger.video.save(self._step, key='videos/eval_video_masks')
+
         return dict(
             episode_reward=np.nanmean(ep_rewards),
             episode_success=np.nanmean(ep_successes),
