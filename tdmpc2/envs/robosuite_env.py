@@ -4,7 +4,7 @@ import cv2
 import gym
 import numpy as np
 import robosuite
-from robosuite import load_controller_config
+from robosuite import load_composite_controller_config
 from robosuite.utils.placement_samplers import UniformRandomSampler, ObjectPositionSampler
 
 from envs.wrappers.time_limit import TimeLimit
@@ -61,6 +61,7 @@ class RobosuiteEnv(gym.Env):
 
     def __init__(self, cfg):
         assert cfg.task in ROBOSUITE_TASKS.keys(), f'Expected tasks={list(ROBOSUITE_TASKS.keys())}. Actual task={cfg.task}'
+        self._robot = 'Panda'
         self.cfg = cfg
         task_cfg = ROBOSUITE_TASKS[cfg.task]
         self._task = task_cfg['env']
@@ -71,7 +72,7 @@ class RobosuiteEnv(gym.Env):
         self.render_mode = self.metadata["render.modes"][0]
 
         np.random.seed(self._seed)
-        controller_config = load_controller_config(default_controller="OSC_POSITION")
+        controller_config = load_composite_controller_config(robot=self._robot)
 
         placement_initializer = FixedPositionSampler("ObjectSampler", self._task)
         if self._use_random_object_position == 'large':
@@ -116,7 +117,7 @@ class RobosuiteEnv(gym.Env):
         self._image_key_name = f'{camera_name}_image'
         env = robosuite.make(
             self._task,
-            robots=["Panda"],
+            robots=[self._robot],
             gripper_types="default",
             controller_configs=controller_config,
             env_configuration="default",
@@ -130,14 +131,14 @@ class RobosuiteEnv(gym.Env):
             camera_names="frontview",
             placement_initializer=placement_initializer,
             initialization_noise=initialization_noise,
-            camera_heights=256,
-            camera_widths=256,
+            camera_heights=224,
+            camera_widths=224,
             ignore_done=False,
         )
 
         self._env = env
         self._last_frame = None
-        self._crop = ((18, 202), (36, 220))
+        self._crop = ((15, 177), (31, 192))
         observation_space = (self.cfg.obs_size, self.cfg.obs_size, 3)
         self.observation_space = gym.spaces.Box(0, 255, observation_space, dtype=np.uint8, seed=self._seed)
 
