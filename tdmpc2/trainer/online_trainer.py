@@ -5,7 +5,6 @@ import torch
 from tensordict.tensordict import TensorDict
 
 from envs.wrappers.slots import SlotExtractorWrapper
-from ocr.tools import grid_numpy
 from trainer.base import Trainer
 
 
@@ -69,6 +68,7 @@ class OnlineTrainer(Trainer):
                 self.logger.video.save(self._step)
 
             if self.cfg.save_video and i == 0 and isinstance(self.env.env, SlotExtractorWrapper):
+                from ocr.tools import grid_numpy
                 model = self.env.slot_extractor._model
                 images_with_masks = []
                 for slot, image in zip(observations, info['episode_images']):

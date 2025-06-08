@@ -53,6 +53,10 @@ try:
     from envs.cw_envs.target import make_env as make_cw_env
 except:
     make_cw_env = missing_dependencies
+try:
+    from envs.mof import make_env as make_mof_env
+except:
+    make_mof_env = missing_dependencies
 
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
@@ -89,7 +93,7 @@ def make_env(cfg, **kwargs):
     else:
         env = None
         for fn in [make_dm_control_env, make_maniskill_env, make_metaworld_env, make_myosuite_env, make_maniskill3_env,
-                   make_robosuite_env, make_isaac_env, make_cw_env]:
+                   make_robosuite_env, make_isaac_env, make_cw_env, make_mof_env]:
             try:
                 env = fn(cfg)
             except ValueError:
