@@ -37,18 +37,21 @@ def collect(cfg: dict):
     cfg = parse_cfg(cfg)
     env = make_env(cfg)
     agent = TDMPC2(cfg)
+    print(f'Action space: {env.action_space.shape}')
     if cfg.get('checkpoint', None):
         print(f'Loading checkpoint: {cfg.checkpoint}')
         state_dict = torch.load(cfg.checkpoint)
         agent.load(state_dict)
 
-    run = wandb.init(project=cfg.wandb_project, name=cfg.wandb_run_name,
-                     config=OmegaConf.to_container(cfg, resolve=True))
+    log_config = OmegaConf.to_container(cfg, resolve=True)
+    log_config['action_space'] = env.action_space.shape
+    run = wandb.init(project=cfg.wandb_project, name=cfg.wandb_run_name, config=log_config)
     total_episodes = cfg.n_train_episodes + cfg.n_val_episodes
+    schedule_end_episode = (1 - cfg['optimal_episodes_fraction']) * (total_episodes - 1)
     for episode_id in tqdm(range(total_episodes), position=tqdm._get_free_pos(), desc='# Run episodes'):
-        epsilon = schedule(episode_id, start_episode=0, end_episode=total_episodes - 1,
+        epsilon = schedule(episode_id, start_episode=0, end_episode=schedule_end_episode,
                            start_value=cfg.epsilon_greedy_start, end_value=cfg.epsilon_greedy_end)
-        noise_scale = schedule(episode_id, start_episode=0, end_episode=total_episodes - 1,
+        noise_scale = schedule(episode_id, start_episode=0, end_episode=schedule_end_episode,
                                start_value=cfg.noise_scale_start, end_value=cfg.noise_scale_end)
         obs, done, ep_reward, t = env.reset(), False, 0, 0
         t = 0
