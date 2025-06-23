@@ -4,7 +4,7 @@ import cv2
 import gym
 import numpy as np
 import robosuite
-from robosuite import load_composite_controller_config
+from robosuite import load_controller_config
 from robosuite.utils.placement_samplers import UniformRandomSampler, ObjectPositionSampler
 
 from envs.wrappers.time_limit import TimeLimit
@@ -72,7 +72,7 @@ class RobosuiteEnv(gym.Env):
         self.render_mode = self.metadata["render.modes"][0]
 
         np.random.seed(self._seed)
-        controller_config = load_composite_controller_config(robot=self._robot)
+        controller_config = load_controller_config(default_controller="OSC_POSITION")
 
         placement_initializer = FixedPositionSampler("ObjectSampler", self._task)
         if self._use_random_object_position == 'large':
@@ -149,7 +149,7 @@ class RobosuiteEnv(gym.Env):
         observation = np.flipud(observation[self._image_key_name])[self._crop[0][0]:self._crop[0][1],
                       self._crop[1][0]:self._crop[1][1]]
         self._last_frame = cv2.resize(observation, dsize=(self.cfg.obs_size, self.cfg.obs_size),
-                                      interpolation=cv2.INTER_CUBIC)
+                                      interpolation=cv2.INTER_AREA)
         return self._last_frame.copy()
 
     def render(self, *args, **kwargs):
