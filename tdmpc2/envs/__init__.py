@@ -11,6 +11,7 @@ except ImportError:
 
 import torch
 
+from envs.wrappers.collect_episodes_wrapper import CollectEpisodes
 from envs.wrappers.ddlp import DynamicDDLPExtractorWrapper, StaticDDLPExtractorWrapper
 from envs.wrappers.multitask import MultitaskWrapper
 from envs.wrappers.pixels import PixelWrapper
@@ -101,6 +102,9 @@ def make_env(cfg, **kwargs):
         if env is None:
             raise ValueError(
                 f'Failed to make environment "{cfg.task}": please verify that dependencies are installed and that the task exists.')
+
+    if cfg.do_collect_episodes:
+        env = CollectEpisodes(env, cfg)
 
     obs_type = cfg.get('obs', 'state')
     if obs_type == 'rgb':
