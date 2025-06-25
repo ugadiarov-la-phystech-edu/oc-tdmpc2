@@ -1,95 +1,81 @@
-import argparse
-import json
 import os
+import random
 
+import wandb
 from omegaconf import OmegaConf
 from tqdm import tqdm
-
-from dlp import create_ddlp, load_checkpoint
 
 os.environ['MUJOCO_GL'] = 'egl'
 os.environ['LAZY_LEGACY_OP'] = '0'
 import warnings
 
 warnings.filterwarnings('ignore')
-from envs import make_env
 import torch
 
-from termcolor import colored
+import hydra
 
-from common.seed import set_seed
+from common.parser import parse_cfg
+from envs import make_env
 from tdmpc2 import TDMPC2
 
 torch.backends.cudnn.benchmark = True
 
 
-def collect(cfg: dict, checkpoint_path: str, save_folder: str, n_episodes: int):
-    """
-    Script for training single-task / multi-task TD-MPC2 agents.
+def schedule(current_episode, start_episode, end_episode, start_value, end_value, ):
+    if current_episode <= start_episode:
+        return start_value
+    elif current_episode >= end_episode:
+        return end_value
+    else:
+        return start_value + (current_episode - start_episode) / (end_episode - start_episode) * (
+                    end_value - start_value)
 
-    Most relevant args:
-        `task`: task name (or mt30/mt80 for multi-task training)
-        `model_size`: model size, must be one of `[1, 5, 19, 48, 317]` (default: 5)
-        `steps`: number of training/environment steps (default: 10M)
-        `seed`: random seed (default: 1)
 
-    See config.yaml for a full list of args.
-
-    Example usage:
-    ```
-        $ python train.py task=mt80 model_size=48
-        $ python train.py task=mt30 model_size=317
-        $ python train.py task=dog-run steps=7000000
-    ```
-    """
-    assert torch.cuda.is_available()
-    cfg = OmegaConf.create(cfg)
-    # assert cfg.steps > 0, 'Must train for at least 1 step.'
+@hydra.main(config_name='config', config_path='.')
+def collect(cfg: dict):
     torch.set_float32_matmul_precision('medium')
+    cfg = parse_cfg(cfg)
+    env = make_env(cfg)
+    agent = TDMPC2(cfg)
+    print(f'Action space: {env.action_space.shape}')
+    if cfg.get('checkpoint', None):
+        print(f'Loading checkpoint: {cfg.checkpoint}')
+        state_dict = torch.load(cfg.checkpoint)
+        agent.load(state_dict)
 
-    # cfg = parse_cfg(cfg)
-    set_seed(cfg.seed)
-    print(colored('Work dir:', 'yellow', attrs=['bold']), cfg.work_dir)
-
-    model = None
-    if cfg.obs == 'ddlp':
-        ddlp_config_path = cfg.ddlp_config_path
-        ddlp_checkpoint_path = cfg.ddlp_checkpoint_path
-        model = create_ddlp(ddlp_config_path)
-        model = load_checkpoint(model, ddlp_checkpoint_path)
-        model = model.to('cuda')
-        model = model.eval()
-        model.requires_grad_(False)
-        cfg.action_dim = model.action_dim
-
-    env = make_env(cfg, extractor=model, save_folder=save_folder)
-    agent = TDMPC2(cfg, ddlp_model=model)
-    agent.load(checkpoint_path)
-
-    for _ in tqdm(range(n_episodes)):
-        obs, done, t = env.reset(), False, 0
+    log_config = OmegaConf.to_container(cfg, resolve=True)
+    log_config['action_space'] = env.action_space.shape
+    run = wandb.init(project=cfg.wandb_project, name=cfg.wandb_run_name, config=log_config)
+    total_episodes = cfg.n_train_episodes + cfg.n_val_episodes
+    schedule_end_episode = (1 - cfg['optimal_episodes_fraction']) * (total_episodes - 1)
+    for episode_id in tqdm(range(total_episodes), position=tqdm._get_free_pos(), desc='# Run episodes'):
+        epsilon = schedule(episode_id, start_episode=0, end_episode=schedule_end_episode,
+                           start_value=cfg.epsilon_greedy_start, end_value=cfg.epsilon_greedy_end)
+        noise_scale = schedule(episode_id, start_episode=0, end_episode=schedule_end_episode,
+                               start_value=cfg.noise_scale_start, end_value=cfg.noise_scale_end)
+        obs, done, ep_reward, t = env.reset(), False, 0, 0
+        t = 0
         while not done:
-            previous_actions = None
-            if cfg.obs == 'ddlp' and cfg.transition_model_type != 'gnn':
-                previous_actions = torch.from_numpy(env.get_actions()).to(obs['fg'].device)
+            action = agent.act(obs, t0=t == 0, eval_mode=True)
+            if random.random() < epsilon:
+                action = env.action_space.sample()
+                action = torch.as_tensor(action)
+            else:
+                action += noise_scale * torch.randn_like(action)
 
-            action = agent.act(obs, t0=t == 0, eval_mode=False, prev_actions=previous_actions)
             obs, reward, done, info = env.step(action)
+            ep_reward += reward
             t += 1
 
-    env.wait_for_futures()
+        record = {'return': ep_reward}
+        if 'success' in info:
+            record['success'] = info['success']
+
+        run.log(record)
+
+    env.close()
+    run.finish()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path', type=str, required=True)
-    parser.add_argument('--checkpoint_path', type=str, required=True)
-    parser.add_argument('--save_folder', type=str, required=True)
-    parser.add_argument('--n_episodes', type=int, required=True)
-    args = parser.parse_args()
-
-    with open(args.config_path, 'r') as file_obj:
-        config = json.load(file_obj)
-
-    config = {k: v['value'] for k, v in config.items()}
-    collect(config, args.checkpoint_path, args.save_folder, args.n_episodes)
+    collect()
