@@ -147,9 +147,9 @@ class RobosuiteEnv(gym.Env):
         self.action_space = gym.spaces.Box(low, high, seed=self._seed)
 
     def _process_observation(self, observation):
-        self._last_source_frame = observation[self._image_key_name].copy()
-        observation = np.flipud(observation[self._image_key_name])[self._crop[0][0]:self._crop[0][1],
-                      self._crop[1][0]:self._crop[1][1]]
+        image = np.flipud(observation[self._image_key_name])
+        self._last_source_frame = image.copy()
+        observation = image[self._crop[0][0]:self._crop[0][1], self._crop[1][0]:self._crop[1][1]]
         self._last_frame = cv2.resize(observation, dsize=(self.cfg.obs_size, self.cfg.obs_size),
                                       interpolation=cv2.INTER_AREA)
         return self._last_frame.copy()
