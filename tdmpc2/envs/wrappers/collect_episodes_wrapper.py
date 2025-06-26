@@ -53,13 +53,13 @@ class CollectEpisodes(gym.Wrapper):
         self.episode_id += 1
 
         obs = super().reset()
-        self.episode_observations.append(np.copy(obs))
+        self.episode_observations.append(np.copy(super().get_last_source_frame()))
 
         return obs
 
     def step(self, action):
         obs, reward, done, info = super().step(action)
-        self.episode_observations.append(np.copy(obs))
+        self.episode_observations.append(np.copy(super().get_last_source_frame()))
         self.episode_actions.append(action)
         self.episode_rewards.append(reward)
 

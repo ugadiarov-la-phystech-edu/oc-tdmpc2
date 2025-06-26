@@ -138,6 +138,7 @@ class RobosuiteEnv(gym.Env):
 
         self._env = env
         self._last_frame = None
+        self._last_source_frame = None
         self._crop = ((15, 177), (31, 192))
         observation_space = (self.cfg.obs_size, self.cfg.obs_size, 3)
         self.observation_space = gym.spaces.Box(0, 255, observation_space, dtype=np.uint8, seed=self._seed)
@@ -146,6 +147,7 @@ class RobosuiteEnv(gym.Env):
         self.action_space = gym.spaces.Box(low, high, seed=self._seed)
 
     def _process_observation(self, observation):
+        self._last_source_frame = observation[self._image_key_name].copy()
         observation = np.flipud(observation[self._image_key_name])[self._crop[0][0]:self._crop[0][1],
                       self._crop[1][0]:self._crop[1][1]]
         self._last_frame = cv2.resize(observation, dsize=(self.cfg.obs_size, self.cfg.obs_size),
@@ -161,6 +163,9 @@ class RobosuiteEnv(gym.Env):
     def step(self, action):
         observation, reward, robosuite_done, info = self._env.step(action)
         return self._process_observation(observation), reward, robosuite_done, info
+
+    def get_last_source_frame(self):
+        return self._last_source_frame
 
 
 def make_env(cfg):
