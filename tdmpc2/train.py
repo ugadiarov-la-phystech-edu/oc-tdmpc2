@@ -24,6 +24,8 @@ from common.buffer import Buffer
 from tdmpc2 import TDMPC2
 from trainer.offline_trainer import OfflineTrainer
 from trainer.online_trainer import OnlineTrainer
+from trainer.sold_online_trainer import SoldOnlineTrainer
+from sold_tdmpc2 import SoldTDMPC2
 from common.logger import Logger
 
 torch.backends.cudnn.benchmark = True
@@ -57,7 +59,16 @@ def train(cfg: dict):
     print(colored('Work dir:', 'yellow', attrs=['bold']), cfg.work_dir)
     print(f'Using device: {cfg.device}')
 
-    trainer_cls = OfflineTrainer if cfg.multitask else OnlineTrainer
+    trainer_cls = None
+    agent_cls = TDMPC2
+    if cfg.multitask:
+        trainer_cls = OfflineTrainer
+    elif cfg.world_model_type == 'sold':
+        trainer_cls = SoldOnlineTrainer
+        agent_cls = SoldTDMPC2
+    else:
+        trainer_cls = OnlineTrainer
+
     model = None
     if cfg.obs == 'ddlp':
         config_path = cfg.ddlp_config_path
@@ -72,7 +83,7 @@ def train(cfg: dict):
     trainer = trainer_cls(
         cfg=cfg,
         env=make_env(cfg, extractor=model),
-        agent=TDMPC2(cfg, ddlp_model=model),
+        agent=agent_cls(cfg, ddlp_model=model),
         buffer=Buffer(cfg),
         logger=Logger(cfg),
     )

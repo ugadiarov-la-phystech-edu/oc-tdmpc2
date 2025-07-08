@@ -32,6 +32,7 @@ discount_max: 0.995
 device: cuda
 buffer_size: 1_000_000
 buffer_storage_device: ???
+use_variable_sequence_length: False
 exp_name: default
 data_dir: ???
 
@@ -121,6 +122,45 @@ use_ro_x: false
 no_ro: false
 project: true
 
+# savi
+savi_feature_dim: 64
+savi_hidden_dim: 128
+savi_num_iterations: 1
+savi_num_initial_iterations: 3
+savi_num_channels: [ 32, 32, 32, 32 ]
+savi_kernel_size: 5
+
+# sold
+sold_dynamics_num_context: 3
+sold_dynamics_token_dim: 256
+sold_dynamics_hidden_dim: 512
+sold_dynamics_num_layers: 4
+sold_dynamics_num_heads: 8
+sold_dynamics_residual: True
+sold_dynamics_teacher_forcing: False
+
+sold_reward_token_dim: 256
+sold_reward_num_heads: 8
+sold_reward_num_layers: 4
+sold_reward_hidden_dim: 512
+sold_reward_num_mlp_layers: 1
+
+sold_actor_token_dim: 256
+sold_actor_num_heads: 8
+sold_actor_num_layers: 4
+sold_actor_hidden_dim: 512
+sold_actor_num_mlp_layers: 1
+
+sold_critic_token_dim: 256
+sold_critic_num_heads: 8
+sold_critic_num_layers: 4
+sold_critic_hidden_dim: 512
+sold_critic_num_mlp_layers: 1
+
+sold_min_std: 0.1
+sold_max_std: 1
+sold_init_std: 2
+
 # oc world model
 use_interactions: true
 
@@ -144,6 +184,8 @@ multitask: ???
 tasks: ???
 obs_shape: ???
 action_dim: ???
+action_lower_bound: ???
+action_upper_bound: ???
 episode_length: ???
 obs_shapes: ???
 action_dims: ???

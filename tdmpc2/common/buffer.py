@@ -1,3 +1,5 @@
+import random
+
 import torch
 from tensordict.tensordict import TensorDict
 from torchrl.data.replay_buffers import ReplayBuffer, LazyTensorStorage
@@ -21,7 +23,14 @@ class Buffer():
             truncated_key=None,
             strict_length=True,
         )
-        self._batch_size = cfg.batch_size * (cfg.horizon + 1)
+        if self.cfg.use_variable_sequence_length:
+            self.sequence_lengths = [cfg.horizon + i for i in range(1, self.cfg.sold_dynamics_num_context + 1)]
+        else:
+            self.sequence_lengths = [cfg.horizon + self.cfg.num_context]
+
+        self.sequence_probability = [0.05] * (len(self.sequence_lengths) - 1)
+        self.sequence_probability.append(1 - sum(self.sequence_probability))
+        self._batch_size = cfg.batch_size * self.sequence_lengths[-1]
         self._num_eps = 0
         self._buffer = None
 
@@ -106,7 +115,9 @@ class Buffer():
 
     def sample(self):
         """Sample a batch of subsequences from the buffer."""
-        td = self._buffer.sample().view(-1, self.cfg.horizon + 1).permute(1, 0)
+        sequence_length = random.choices(self.sequence_lengths, weights=self.sequence_probability)[0]
+        batch_size = self.cfg.batch_size * sequence_length
+        td = self._buffer.sample(batch_size=batch_size).view(-1, sequence_length).permute(1, 0)
         return self._prepare_batch(td)
 
     def dumps(self, path):

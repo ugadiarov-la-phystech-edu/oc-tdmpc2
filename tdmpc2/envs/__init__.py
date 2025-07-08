@@ -4,6 +4,8 @@ from copy import deepcopy
 import warnings
 
 import gym
+
+
 try:
     import isaacgym
 except ImportError:
@@ -111,11 +113,10 @@ def make_env(cfg, **kwargs):
         env = PixelWrapper(cfg, env, num_frames=cfg.num_frames, render_size=cfg.obs_size)
     elif obs_type == 'slots':
         from envs.wrappers.slots import SlotExtractorWrapper
-        from ocr.tools import SlotExtractor
 
         slot_extractor_model = cfg['slot_extractor_model']
         if slot_extractor_model == 'dinosaur':
-            from ocr.tools import Dinosaur
+            from ocr.tools import SlotExtractor, Dinosaur
 
             sa_model = Dinosaur(cfg.dino_model_name, cfg.n_slots, cfg.slot_dim, cfg.input_feature_dim, cfg.num_patches,
                                 cfg.features)
@@ -123,6 +124,7 @@ def make_env(cfg, **kwargs):
             state_dict = {key[len('models.'):]: value for key, value in state_dict.items()}
             sa_model.load_state_dict(state_dict)
         elif slot_extractor_model == 'akornsaur':
+            from ocr.tools import SlotExtractor
             from ema_pytorch import EMA
             from ocr.akorn.source.models.objs.knet import AKOrN
             from ocr.akorn.source.models.slot_attention.akornsaur import AkornSAur
@@ -179,6 +181,26 @@ def make_env(cfg, **kwargs):
                                   is_encoder_frozen=True)
             weights = torch.load(cfg.slot_extractor_checkpoint_path, weights_only=True)['model']
             sa_model.load_state_dict(weights)
+        elif slot_extractor_model == 'savi':
+            from sold.modeling.savi import Corrector, FullyConvolutionalEncoder, FullyConvolutionalDecoder, TransformerPredictor, Learned
+            from envs.wrappers.savi_wrapper import SlotExtractor, load_savi_module
+            from sold.modeling.savi.model import SAVi
+
+            assert cfg.pre_initialize_slots, f'With SAVi encoder must use pre_initialized_slots == True'
+            corrector = Corrector(cfg.n_slots, cfg.slot_dim, feature_dim=cfg.savi_feature_dim,
+                                  num_iterations=cfg.savi_num_iterations,
+                                  num_initial_iterations=cfg.savi_num_initial_iterations,
+                                  hidden_dim=cfg.savi_hidden_dim,)
+            predictor = TransformerPredictor(cfg.slot_dim, action_dim=-1,)
+            encoder = FullyConvolutionalEncoder(image_size=env.observation_space.shape[:-1],
+                                                num_channels=cfg.savi_num_channels, kernel_size=cfg.savi_kernel_size,
+                                                feature_dim=cfg.savi_feature_dim,)
+            decoder = FullyConvolutionalDecoder(image_size=env.observation_space.shape[:-1], slot_dim=cfg.slot_dim,
+                                                in_channels=cfg.slot_dim, num_channels=cfg.savi_num_channels,
+                                                kernel_size=cfg.savi_kernel_size,)
+            slot_initializer = Learned(cfg.n_slots, cfg.slot_dim,)
+            sa_model = SAVi(corrector, predictor, encoder, decoder, slot_initializer,)
+            load_savi_module(sa_model, cfg.slot_extractor_checkpoint_path,)
         else:
             raise ValueError(f'Unexpected slot_extractor_model={slot_extractor_model}')
 
@@ -211,6 +233,8 @@ def make_env(cfg, **kwargs):
     except:  # Box
         cfg.obs_shape = {cfg.get('obs', 'state'): env.observation_space.shape}
     cfg.action_dim = env.action_space.shape[0]
+    cfg.action_lower_bound = env.action_space.low.tolist()
+    cfg.action_upper_bound = env.action_space.high.tolist()
     cfg.episode_length = env.max_episode_steps
     cfg.seed_steps = cfg.get('seed_steps', max(1000, 5 * cfg.episode_length))
     return env

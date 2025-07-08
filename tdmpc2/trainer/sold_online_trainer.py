@@ -1,0 +1,196 @@
+import collections
+import warnings
+from time import time
+
+import numpy as np
+import torch
+from tensordict.tensordict import TensorDict
+
+from envs.wrappers.slots import SlotExtractorWrapper
+from trainer.base import Trainer
+
+
+class SoldOnlineTrainer(Trainer):
+    """Trainer class for single-task online TD-MPC2 training."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._step = 0
+        self._ep_idx = 0
+        self._start_time = time()
+        self._tds = None
+        if self.cfg.get('checkpoint', None):
+            print(f'Loading checkpoint: {self.cfg.checkpoint}')
+            state_dict = torch.load(self.cfg.checkpoint)
+            self.agent.load(state_dict)
+            self._step = state_dict['step']
+            self._ep_idx = state_dict['episode']
+            self.buffer.num_eps = state_dict['episode']
+            self._start_time = time() - state_dict['total_time']
+
+    def common_metrics(self):
+        """Return a dictionary of current metrics."""
+        total_time = time() - self._start_time
+        return dict(
+            step=self._step,
+            episode=self._ep_idx,
+            total_time=total_time,
+            fps= self._step / total_time
+        )
+
+    def eval(self):
+        """Evaluate a TD-MPC2 agent."""
+        ep_rewards, ep_successes = [], []
+        total_time = 0
+        total_steps = 0
+        obs_history = collections.deque(maxlen=self.cfg.sold_dynamics_num_context)
+        actions_history = collections.deque(maxlen=self.cfg.sold_dynamics_num_context - 1)
+        for i in range(self.cfg.eval_episodes):
+            observations = []
+            obs, done, ep_reward, t = self.env.reset(), False, 0, 0
+            if self.cfg.save_video:
+                self.logger.video.init(self.env, enabled=(i == 0))
+            start_time = time()
+            observations.append(obs)
+            obs_history.append(obs)
+            while not done:
+                previous_actions = None
+                if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type != 'gnn':
+                    previous_actions = torch.from_numpy(self.env.get_actions()).to(obs['fg'].device)
+
+                action = self.agent.act(obs_history, t0=t == 0, eval_mode=True, prev_actions=actions_history)
+                obs, reward, done, info = self.env.step(action)
+                observations.append(obs)
+                obs_history.append(obs)
+                actions_history.append(action)
+                ep_reward += reward
+                t += 1
+                if self.cfg.save_video:
+                    self.logger.video.record(self.env)
+            ep_rewards.append(ep_reward)
+            ep_successes.append(info['success'])
+            total_time += time() - start_time
+            total_steps += t
+            obs_history = collections.deque(maxlen=self.cfg.sold_dynamics_num_context)
+            actions_history = collections.deque(maxlen=self.cfg.sold_dynamics_num_context - 1)
+            if self.cfg.save_video:
+                self.logger.video.save(self._step)
+
+            if self.cfg.save_video and i == 0 and isinstance(self.env.env, SlotExtractorWrapper):
+                from ocr.tools import grid_numpy
+                model = self.env.slot_extractor._model
+                images_with_masks = []
+                for slot, image in zip(observations, info['episode_images']):
+                    batch_slot = torch.as_tensor(slot, device='cuda').unsqueeze(0)
+                    batch_image = torch.as_tensor(image / 255., device='cuda', dtype=torch.float32).movedim(-1, 0).unsqueeze(0)
+                    _, batch_decoder_masks = model.get_decoder_masks_by_slots(batch_image, batch_slot)
+                    image_with_masks = grid_numpy(batch_image, batch_decoder_masks)
+                    images_with_masks.append(image_with_masks)
+
+                self.logger.video.enabled = True
+                self.logger.video.frames = images_with_masks
+                self.logger.video.save(self._step, key='videos/eval_video_masks')
+
+        return dict(
+            episode_reward=np.nanmean(ep_rewards),
+            episode_success=np.nanmean(ep_successes),
+            fps=total_steps / total_time,
+        )
+
+    def to_td(self, obs, action=None, reward=None):
+        """Creates a TensorDict for a new episode."""
+        if isinstance(obs, dict):
+            obs = TensorDict({k: v.unsqueeze(0) for k, v in obs.items()}, batch_size=(), device='cpu')
+        else:
+            obs = obs.unsqueeze(0).cpu()
+        if action is None:
+            if self.cfg.obs == 'ddlp' and self.cfg.transition_model_type != 'gnn':
+                action = torch.full(self.env.get_actions().shape, 0, dtype=torch.float32)
+            else:
+                action = torch.full_like(self.env.rand_act(), float('nan'))
+
+        if reward is None:
+            reward = torch.tensor(float('nan'))
+        td = TensorDict(dict(
+            obs=obs,
+            action=action.unsqueeze(0),
+            reward=reward.unsqueeze(0),
+        ), batch_size=(1,))
+        return td
+
+    def train(self):
+        """Train a TD-MPC2 agent."""
+        train_metrics, done, eval_next = {}, True, self.cfg.eval_freq > 0
+        next_save_step = self._step + self.cfg.save_every
+        obs_history = None
+        actions_history = None
+
+        while self._step <= self.cfg.steps:
+
+            # Evaluate agent periodically
+            if self.cfg.eval_freq > 0 and self._step % self.cfg.eval_freq == 0:
+                eval_next = True
+
+            # Reset environment
+            if done:
+                if eval_next:
+                    eval_metrics = self.eval()
+                    eval_metrics.update(self.common_metrics())
+                    self.logger.log(eval_metrics, 'eval')
+                    eval_next = False
+
+                if self._tds is not None:
+                    train_metrics.update(
+                        episode_reward=torch.tensor([td['reward'] for td in self._tds[1:]]).sum(),
+                        episode_success=info['success'],
+                    )
+                    train_metrics.update(self.common_metrics())
+                    self.logger.log(train_metrics, 'train')
+                    self._ep_idx = self.buffer.add(torch.cat(self._tds))
+
+                obs = self.env.reset()
+                self._tds = [self.to_td(obs)]
+                if not self.buffer.is_initialized():
+                    self.buffer.init(torch.cat(self._tds))
+
+            # Collect experience
+            if done:
+                obs_history = collections.deque(maxlen=self.cfg.sold_dynamics_num_context)
+
+            obs_history.append(obs)
+
+            if self._step > self.cfg.seed_steps:
+                if self.cfg.world_model_type == 'sold':
+                    action = self.agent.act(obs_history, t0=len(self._tds) == 1, prev_actions=actions_history)
+                else:
+                    action = self.agent.act(obs, t0=len(self._tds) == 1)
+            else:
+                action = self.env.rand_act()
+
+            if done:
+                actions_history = collections.deque(maxlen=self.cfg.sold_dynamics_num_context - 1)
+
+            actions_history.append(action)
+
+            obs, reward, done, info = self.env.step(action)
+            buffer_action = action
+            self._tds.append(self.to_td(obs, buffer_action, reward))
+
+            # Update agent
+            if self._step >= self.cfg.seed_steps:
+                if self._step == self.cfg.seed_steps:
+                    num_updates = self.cfg.seed_steps
+                    print('Pretraining agent on seed data...')
+                else:
+                    num_updates = 1
+                for _ in range(num_updates):
+                    _train_metrics = self.agent.update(self.buffer)
+                train_metrics.update(_train_metrics)
+
+            if self._step > next_save_step:
+                next_save_step += self.cfg.save_every
+                self.logger.save_agent(self.agent, statistics=self.common_metrics(), identifier='checkpoint', buffer=self.buffer)
+
+            self._step += 1
+
+        self.logger.finish(self.agent)

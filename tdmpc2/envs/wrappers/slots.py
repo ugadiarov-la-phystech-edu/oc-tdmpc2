@@ -21,15 +21,9 @@ class SlotExtractorWrapper(gym.Wrapper):
         self.prev_slots = None
         self._episode_images = None
 
-    def _get_slots(self, frame, prev_slots=None):
-        if prev_slots is None and self.cfg.pre_initialize_slots:
-            prev_slots = self.slot_extractor(frame, prev_slots=None)
-
-        return self.slot_extractor(frame, prev_slots=prev_slots)
-
     def reset(self):
         frame = self.env.reset()
-        self.prev_slots = self._get_slots(frame, prev_slots=None)
+        self.prev_slots = self.slot_extractor(frame, prev_slots=None)
         self._episode_images = [frame]
         return self.prev_slots.copy()
 
@@ -37,7 +31,7 @@ class SlotExtractorWrapper(gym.Wrapper):
         frame, reward, done, info = self.env.step(action)
         self._episode_images.append(frame)
         prev_slots = self.prev_slots if self.cfg.pre_initialize_slots else None
-        self.prev_slots = self._get_slots(frame, prev_slots=prev_slots)
+        self.prev_slots = self.slot_extractor(frame, prev_slots=prev_slots)
         if done:
             info['episode_images'] = self._episode_images
             self._episode_images = None
