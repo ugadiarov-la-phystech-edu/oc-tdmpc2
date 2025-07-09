@@ -342,7 +342,7 @@ class SoldTDMPC2:
         self.optim.zero_grad(set_to_none=True)
         self.model.train()
 
-        weight = torch.pow(self.cfg.rho, torch.arange(self.cfg.horizon, device=self.device)).unsqueeze_(-1).unsqueeze_(0)
+        weight = torch.pow(self.cfg.rho, torch.arange(self.cfg.horizon, device=self.device))
         consistency_loss = torch.as_tensor(0, dtype=torch.float32, device=self.device)
         if self.cfg.obs == 'ddlp':
             zs = [obs[0]]
@@ -361,8 +361,7 @@ class SoldTDMPC2:
             # Latent rollout
             # Predictions
             _zs = self.model.next(z_context, next_action, task)
-
-            consistency_loss = F.mse_loss(_zs, next_z, weight=weight.unsqueeze(-1).expand_as(_zs))
+            consistency_loss = torch.sum(torch.mean((_zs - next_z) ** 2, dim=(0, 2, 3)) * weight)
 
         batch_size, seq_len = prev_z.size()[:2]
         start_prediction_index = seq_len - self.cfg.horizon
@@ -372,12 +371,12 @@ class SoldTDMPC2:
         assert qs.shape[-2] == self.cfg.horizon
         value_loss = math.soft_ce(qs.flatten(end_dim=2), td_targets.unsqueeze(0).expand(qs.shape[0], -1, -1, -1).flatten(end_dim=2), self.cfg)
         value_loss = value_loss.reshape(*qs.shape[:3], -1)
-        value_loss = torch.mean(value_loss * weight.unsqueeze(0), dim=(0, 1)).sum()
+        value_loss = torch.sum(torch.mean(value_loss, dim=(0, 1, 3)) * weight)
 
         reward_preds = self.model.reward(prev_z, next_action, task, start=start_prediction_index)
         assert reward_preds.shape[1] == self.cfg.horizon
         reward_loss = math.soft_ce(reward_preds.flatten(end_dim=1), reward.flatten(end_dim=1), self.cfg)
-        reward_loss = torch.mean(reward_loss.reshape(batch_size, self.cfg.horizon, -1) * weight, dim=0).sum()
+        reward_loss = torch.sum(torch.mean(reward_loss.reshape(batch_size, self.cfg.horizon, -1), dim=(0, 2)) * weight)
 
         consistency_loss *= (1 / self.cfg.horizon)
         reward_loss *= (1 / self.cfg.horizon)
