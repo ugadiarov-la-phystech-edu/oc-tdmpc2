@@ -26,7 +26,7 @@ class Buffer():
         if self.cfg.use_variable_sequence_length:
             self.sequence_lengths = [cfg.horizon + i for i in range(1, self.cfg.sold_dynamics_num_context + 1)]
         else:
-            self.sequence_lengths = [cfg.horizon + self.cfg.num_context]
+            self.sequence_lengths = [cfg.horizon + self.cfg.sold_dynamics_num_context]
 
         self.sequence_probability = [0.05] * (len(self.sequence_lengths) - 1)
         self.sequence_probability.append(1 - sum(self.sequence_probability))
