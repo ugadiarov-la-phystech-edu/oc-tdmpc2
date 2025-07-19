@@ -13,6 +13,7 @@ class SlotAttention(nn.Module):
         slot_dim: int,
         kvq_dim: Optional[int] = None,
         hidden_dim: Optional[int] = None,
+        n_initial_iters: int = 3,
         n_iters: int = 3,
         eps: float = 1e-8,
         use_gru: bool = True,
@@ -47,6 +48,7 @@ class SlotAttention(nn.Module):
         self.norm_slots = nn.LayerNorm(slot_dim)
 
         self.n_iters = n_iters
+        self.n_initial_iters = n_initial_iters
         self.eps = eps
         self.scale = kvq_dim**-0.5
 
@@ -75,13 +77,16 @@ class SlotAttention(nn.Module):
 
         return slots, pre_norm_attn
 
-    def forward(self, slots: torch.Tensor, features: torch.Tensor, n_iters: Optional[int] = None):
+    def forward(self, slots: torch.Tensor, features: torch.Tensor, n_iters: Optional[int] = None, step: Optional[int] = 0):
         features = self.norm_features(features)
         keys = self.to_k(features)
         values = self.to_v(features)
 
         if n_iters is None:
-            n_iters = self.n_iters
+            if step == 0:
+                n_iters = self.n_initial_iters
+            else:
+                n_iters = self.n_iters
 
         for _ in range(n_iters):
             slots, pre_norm_attn = self.step(slots, keys, values)

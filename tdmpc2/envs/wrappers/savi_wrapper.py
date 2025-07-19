@@ -37,7 +37,8 @@ class SlotExtractor:
         if batch_prev_slots is not None:
             batch_prev_slots = torch.Tensor(batch_prev_slots).to(self._device)
 
-        slots = self._savi(batch_images, actions=torch.empty((0, 1)), prior_slots=batch_prev_slots, step_offset=0 if prev_slots is None else 1, reconstruct=False).detach()
+        slots = self._savi(batch_images, actions=torch.empty((0, 1)), prior_slots=batch_prev_slots,
+                           step_offset=0 if prev_slots is None else 1, reconstruct=False)['slots_sequence'].detach()
         # Expect len(images.shape) in [3, 4]
         if len(images.shape) == 3:
             slots = slots[0]

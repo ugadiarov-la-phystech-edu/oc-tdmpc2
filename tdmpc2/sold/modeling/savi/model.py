@@ -69,13 +69,13 @@ class SAVi(nn.Module):
                 rgbs_sequence.append(rgb)
                 masks_sequence.append(masks)
 
-        slots_sequence = torch.stack(slots_sequence, dim=1)
+        result = {'slots_sequence': torch.stack(slots_sequence, dim=1)}
         if reconstruct:
-            reconstruction_sequence = torch.stack(reconstruction_sequence, dim=1)
-            rgbs_sequence = torch.stack(rgbs_sequence, dim=1)
-            masks_sequence = torch.stack(masks_sequence, dim=1)
-        return (
-        slots_sequence, reconstruction_sequence, rgbs_sequence, masks_sequence) if reconstruct else slots_sequence
+            result['reconstruction_sequence'] = torch.stack(reconstruction_sequence, dim=1)
+            result['rgbs_sequence'] = torch.stack(rgbs_sequence, dim=1)
+            result['masks_sequence'] = torch.stack(masks_sequence, dim=1)
+
+        return result
 
     def apply_attention(self, x, predicted_slots=None, step=0):
         slots = self.corrector(x, slots=predicted_slots, step=step)  # slots ~ (B, N_slots, Slot_dim)

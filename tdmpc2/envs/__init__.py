@@ -5,6 +5,7 @@ import warnings
 
 import gym
 
+from ocr.akorn.source.models.savi.model import AkornSAVi
 
 try:
     import isaacgym
@@ -178,6 +179,61 @@ def make_env(cfg, **kwargs):
 
             decoder = MLPDecoder(inp_dim=cfg.slot_dim, outp_dim=256, hidden_dims=[512, 512, 512], n_patches=n_patches)
             sa_model = AkornSAur(encoder, features_projector, initializer, slot_attention, decoder,
+                                  is_encoder_frozen=True)
+            weights = torch.load(cfg.slot_extractor_checkpoint_path, weights_only=True)['model']
+            sa_model.load_state_dict(weights)
+        elif slot_extractor_model == 'ksavi':
+            from envs.wrappers.savi_wrapper import SlotExtractor
+            from ema_pytorch import EMA
+            from ocr.akorn.source.models.objs.knet import AKOrN
+            from ocr.akorn.source.models.slot_attention.decoders import MLPDecoder
+            from ocr.akorn.source.models.savi.initializer import Learned
+            from ocr.akorn.source.models.slot_attention.networks import MLP
+            from ocr.akorn.source.models.slot_attention.slot_attention import SlotAttention
+            from ocr.akorn.source.models.savi.predictor import TransformerPredictor
+
+            n_patches = (cfg.obs_size // cfg.psize) ** 2
+            encoder = AKOrN(
+                cfg.N,
+                ch=cfg.ch,
+                L=cfg.L,
+                T=cfg.T,
+                J=cfg.J,
+                use_omega=cfg.use_omega,
+                global_omg=cfg.global_omg,
+                c_norm=cfg.c_norm,
+                psize=cfg.psize,
+                imsize=cfg.obs_size,
+                autorescale=cfg.autorescale,
+                maxpool=cfg.maxpool,
+                project=cfg.project,
+                heads=cfg.heads,
+                use_ro_x=cfg.use_ro_x,
+                no_ro=cfg.no_ro,
+                gta=cfg.gta,
+            )
+
+            encoder = EMA(encoder)
+            encoder = encoder.ema_model
+
+            features_projector = MLP(
+                inp_dim=256,
+                outp_dim=cfg.slot_dim,
+                hidden_dims=[2 * 256],
+                initial_layer_norm=True, )
+
+            initializer = Learned(num_slots=cfg.n_slots, slot_dim=cfg.slot_dim)
+
+            slot_attention = SlotAttention(
+                inp_dim=cfg.slot_dim,
+                slot_dim=cfg.slot_dim,
+                n_initial_iters=3,
+                n_iters=1,
+                use_mlp=True,)
+
+            decoder = MLPDecoder(inp_dim=cfg.slot_dim, outp_dim=256, hidden_dims=[512, 512, 512], n_patches=n_patches)
+            predictor = TransformerPredictor(slot_dim=cfg.slot_dim, action_dim=-1,)
+            sa_model = AkornSAVi(encoder, features_projector, initializer, slot_attention, decoder, predictor,
                                   is_encoder_frozen=True)
             weights = torch.load(cfg.slot_extractor_checkpoint_path, weights_only=True)['model']
             sa_model.load_state_dict(weights)
