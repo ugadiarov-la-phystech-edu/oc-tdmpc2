@@ -1,4 +1,5 @@
 import os
+import comet_ml
 
 try:
     import isaacgym

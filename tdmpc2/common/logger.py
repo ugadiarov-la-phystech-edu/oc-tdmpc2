@@ -1,6 +1,8 @@
 import os
 import datetime
 import re
+
+import comet_ml
 import numpy as np
 import pandas as pd
 from termcolor import colored
@@ -123,33 +125,25 @@ class Logger:
             print(colored("Wandb disabled.", "blue", attrs=["bold"]))
             cfg.save_agent = False
             cfg.save_video = False
-            self._wandb = None
+            self._experiment = None
             self._video = None
             return
         os.environ["WANDB_SILENT"] = "true" if cfg.wandb_silent else "false"
-        import wandb
 
         config_dict = OmegaConf.to_container(cfg, resolve=True)
         slurm_job_id_env_key = 'SLURM_JOB_ID'
         if slurm_job_id_env_key in os.environ:
             config_dict[slurm_job_id_env_key] = os.environ[slurm_job_id_env_key]
 
-        wandb.init(
-            project=self.project,
-            entity=self.entity,
-            name=self.run_name,
-            group=self.group_name,
-            tags=cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"],
-            dir=self._log_dir,
-            config=config_dict,
-            resume="must" if self.run_id else "never",
-            id=self.run_id if self.run_id else None,
-        )
-        print(colored("Logs will be synced with wandb.", "blue", attrs=["bold"]))
-        self._wandb = wandb
+        experiment = comet_ml.start(project_name=self.project)
+        experiment.log_parameters(config_dict)
+        experiment.add_tags(cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"])
+        experiment.set_name(self.run_name)
+        print(colored("Logs will be synced with comet_ml.", "blue", attrs=["bold"]))
+        self._experiment = experiment
         self._video = (
-            VideoRecorder(cfg, self._wandb)
-            if self._wandb and cfg.save_video
+            VideoRecorder(cfg, self._experiment)
+            if self._experiment and cfg.save_video
             else None
         )
 
@@ -167,21 +161,21 @@ class Logger:
             agent.save(statistics, fp)
             buffer_path = self._model_dir / f'{str(identifier)}.buf'
             buffer.dumps(buffer_path)
-            if self._wandb and self._save_checkpoint_wandb:
-                artifact = self._wandb.Artifact(
-                    self._group + '-' + str(self._seed) + '-' + str(identifier),
-                    type='model',
+            if self._experiment and self._save_checkpoint_wandb:
+                artifact = comet_ml.Artifact(
+                    name=self._group + '-' + str(self._seed) + '-' + str(identifier),
+                    artifact_type='model',
                 )
-                artifact.add_file(fp)
-                self._wandb.log_artifact(artifact)
+                artifact.add(fp)
+                self._experiment.log_artifact(artifact)
 
     def finish(self, agent=None):
         try:
             self.save_agent(agent)
         except Exception as e:
             print(colored(f"Failed to save model: {e}", "red"))
-        if self._wandb:
-            self._wandb.finish()
+        if self._experiment:
+            self._experiment.end()
 
     def _format(self, key, value, ty):
         if ty == "int":
@@ -234,7 +228,7 @@ class Logger:
 
     def log(self, d, category="train"):
         assert category in CAT_TO_COLOR.keys(), f"invalid category: {category}"
-        if self._wandb:
+        if self._experiment:
             if category in {"train", "eval"}:
                 xkey = "step"
             elif category == "pretrain":
@@ -242,7 +236,7 @@ class Logger:
             _d = dict()
             for k, v in d.items():
                 _d[category + "/" + k] = v
-            self._wandb.log(_d, step=d[xkey])
+            self._experiment.log_metrics(_d, step=d[xkey])
         if category == "eval" and self._save_csv:
             keys = ["step", "episode_reward"]
             self._eval.append(np.array([d[keys[0]], d[keys[1]]]))
