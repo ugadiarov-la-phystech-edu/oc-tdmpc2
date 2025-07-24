@@ -83,7 +83,7 @@ class AkornSAVi(nn.Module):
         for t in range(sequence_length):
             imgs = images[:, t]
             img_feats, sloat_attention_input = self._get_features(imgs)
-            slot_attention_output = self.slot_attention(predicted_slots, sloat_attention_input, step=t + step_offset)
+            slot_attention_output = self.slot_attention(slots=predicted_slots, image_features=sloat_attention_input, step=t + step_offset)
             # slots: torch.Tensor, features: torch.Tensor, n_iters: Optional[int] = None, step: Optional[int] = 0)
             slots = slot_attention_output['slots']
             if t < sequence_length - 1:

@@ -191,6 +191,7 @@ def make_env(cfg, **kwargs):
             from ocr.akorn.source.models.slot_attention.networks import MLP
             from ocr.akorn.source.models.slot_attention.slot_attention import SlotAttention
             from ocr.akorn.source.models.savi.predictor import TransformerPredictor
+            from ocr.akorn.source.models.savi import Corrector
 
             n_patches = (cfg.obs_size // cfg.psize) ** 2
             encoder = AKOrN(
@@ -224,12 +225,14 @@ def make_env(cfg, **kwargs):
 
             initializer = Learned(num_slots=cfg.n_slots, slot_dim=cfg.slot_dim)
 
-            slot_attention = SlotAttention(
-                inp_dim=cfg.slot_dim,
+            slot_attention = Corrector(
+                num_slots=cfg.n_slots,
                 slot_dim=cfg.slot_dim,
-                n_initial_iters=3,
-                n_iters=1,
-                use_mlp=True,)
+                feature_dim=cfg.slot_dim,
+                num_iterations=1,
+                num_initial_iterations=3,
+                hidden_dim=4 * cfg.slot_dim,
+            )
 
             decoder = MLPDecoder(inp_dim=cfg.slot_dim, outp_dim=256, hidden_dims=[512, 512, 512], n_patches=n_patches)
             predictor = TransformerPredictor(slot_dim=cfg.slot_dim, action_dim=-1,)
