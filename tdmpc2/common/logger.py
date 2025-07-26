@@ -121,7 +121,7 @@ class Logger:
         self.run_name = f'{cfg.get("wandb_run_name", str(datetime.datetime.now()))}_{str(cfg.seed)}'
         self.group_name = cfg.get("wandb_group_name", self._group)
         self.run_id = cfg.get("wandb_run_id", None)
-        if cfg.disable_wandb or self.project == "none" or self.entity == "none":
+        if cfg.disable_wandb or self.project == "none":
             print(colored("Wandb disabled.", "blue", attrs=["bold"]))
             cfg.save_agent = False
             cfg.save_video = False
@@ -135,7 +135,11 @@ class Logger:
         if slurm_job_id_env_key in os.environ:
             config_dict[slurm_job_id_env_key] = os.environ[slurm_job_id_env_key]
 
-        experiment = comet_ml.start(project_name=self.project)
+        experiment = comet_ml.start(
+            project_name=self.project,
+            experiment_key=self.run_id,
+            mode="get" if self.run_id else "create",
+        )
         experiment.log_parameters(config_dict)
         experiment.add_tags(cfg_to_group(cfg, return_list=True) + [f"seed:{cfg.seed}"])
         experiment.set_name(self.run_name)
