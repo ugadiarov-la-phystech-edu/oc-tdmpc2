@@ -67,7 +67,7 @@ def make_env(cfg):
     """
     if cfg.task not in MANISKILL_TASKS:
         raise ValueError('Unknown task:', cfg.task)
-    assert cfg.obs in ('rgb', 'slots'), 'This task supports only image-based and slot-based observations.'
+    assert cfg.obs in ('rgb', 'slots', 'state'), 'This task supports only image-based and slot-based observations.'
     task_cfg = MANISKILL_TASKS[cfg.task]
     env = gymnasium.make(
         task_cfg['env'],

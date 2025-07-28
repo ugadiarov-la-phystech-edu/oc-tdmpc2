@@ -14,12 +14,20 @@ ROBOSUITE_TASKS = {
         env='Lift',
         initialization_noise_magnitude=0.5,
         use_random_object_position=False,
+        raw_observation=False,
     ),
     'lift-medium': dict(
         env='Lift',
         initialization_noise_magnitude=0.5,
         use_random_object_position='medium',
+        raw_observation=False,
     ),
+    'lift-medium-raw': dict(
+        env='Lift',
+        initialization_noise_magnitude=0.5,
+        use_random_object_position='medium',
+        raw_observation=True,
+    )
 }
 
 
@@ -68,6 +76,7 @@ class RobosuiteEnv(gym.Env):
         self._horizon = cfg['time_limit']
         self._initialization_noise_magnitude = task_cfg['initialization_noise_magnitude']
         self._use_random_object_position = task_cfg['use_random_object_position']
+        self._raw_observation = task_cfg['raw_observation']
         self._seed = cfg['seed']
         self.render_mode = self.metadata["render.modes"][0]
 
@@ -147,10 +156,16 @@ class RobosuiteEnv(gym.Env):
         self.action_space = gym.spaces.Box(low, high, seed=self._seed)
 
     def _process_observation(self, observation):
-        image = np.flipud(observation[self._image_key_name])
+        image = observation[self._image_key_name]
+        if not self._raw_observation:
+            image = np.flipud(image)
+
         self._last_source_frame = image.copy()
-        observation = image[self._crop[0][0]:self._crop[0][1], self._crop[1][0]:self._crop[1][1]]
-        self._last_frame = cv2.resize(observation, dsize=(self.cfg.obs_size, self.cfg.obs_size),
+
+        if not self._raw_observation:
+            image = image[self._crop[0][0]:self._crop[0][1], self._crop[1][0]:self._crop[1][1]]
+
+        self._last_frame = cv2.resize(image, dsize=(self.cfg.obs_size, self.cfg.obs_size),
                                       interpolation=cv2.INTER_AREA)
         return self._last_frame.copy()
 
@@ -174,7 +189,7 @@ def make_env(cfg):
     """
     if cfg.task not in ROBOSUITE_TASKS:
         raise ValueError('Unknown task:', cfg.task)
-    assert cfg.obs in ('rgb', 'slots', 'ddlp'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
+    assert cfg.obs in ('rgb', 'slots', 'ddlp', 'state'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
     env = RobosuiteEnv(cfg)
     env = TimeLimit(env, max_episode_steps=cfg['time_limit'])
     env.max_episode_steps = env._max_episode_steps

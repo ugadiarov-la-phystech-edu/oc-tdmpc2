@@ -25,8 +25,6 @@ from common.buffer import Buffer
 from tdmpc2 import TDMPC2
 from trainer.offline_trainer import OfflineTrainer
 from trainer.online_trainer import OnlineTrainer
-from trainer.sold_online_trainer import SoldOnlineTrainer
-from sold_tdmpc2 import SoldTDMPC2
 from common.logger import Logger
 
 torch.backends.cudnn.benchmark = True
@@ -65,6 +63,8 @@ def train(cfg: dict):
     if cfg.multitask:
         trainer_cls = OfflineTrainer
     elif cfg.world_model_type == 'sold':
+        from trainer.sold_online_trainer import SoldOnlineTrainer
+        from sold_tdmpc2 import SoldTDMPC2
         trainer_cls = SoldOnlineTrainer
         agent_cls = SoldTDMPC2
     else:

@@ -20,7 +20,7 @@ def make_env(cfg):
     if cfg.task != 'cw':
         raise ValueError('Expected CausalWorld environment task')
 
-    assert cfg.obs in ('rgb', 'slots', 'ddlp'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
+    assert cfg.obs in ('rgb', 'slots', 'ddlp', 'state'), f'This task supports only image-based and slot-based observations, but cfg.obs={cfg.obs}'
     env_config = OmegaConf.load(cfg['env_config_path'])
     env_config['time_limit'] = cfg['time_limit']
     env_config['obs_size'] = cfg['obs_size']
