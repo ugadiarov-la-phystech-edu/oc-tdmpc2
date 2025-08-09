@@ -241,6 +241,63 @@ def make_env(cfg, **kwargs):
                                   is_encoder_frozen=True)
             weights = torch.load(cfg.slot_extractor_checkpoint_path, weights_only=True)['model']
             sa_model.load_state_dict(weights)
+        elif slot_extractor_model == 'slot-contrast':
+            from envs.wrappers.savi_wrapper import SlotExtractor
+            from ema_pytorch import EMA
+            from ocr.akorn.source.models.objs.knet import AKOrN
+            from ocr.akorn.source.models.slotcontrast.modules.networks import MLP, TransformerEncoder
+            from ocr.akorn.source.models.slotcontrast.modules.initializer import FixedLearnedInit
+            from ocr.akorn.source.models.slotcontrast.modules.groupers import SlotAttention
+            from ocr.akorn.source.models.slotcontrast.modules.decoders import MLPDecoder
+            from ocr.akorn.source.models.slotcontrast.modules.video import LatentProcessor
+            from ocr.akorn.source.models.slotcontrast.model import SlotContrastAkornSAur
+
+            n_patches = (cfg.obs_size // cfg.psize) ** 2
+            encoder = AKOrN(
+                cfg.N,
+                ch=cfg.ch,
+                L=cfg.L,
+                T=cfg.T,
+                J=cfg.J,
+                use_omega=cfg.use_omega,
+                global_omg=cfg.global_omg,
+                c_norm=cfg.c_norm,
+                psize=cfg.psize,
+                imsize=cfg.obs_size,
+                autorescale=cfg.autorescale,
+                maxpool=cfg.maxpool,
+                project=cfg.project,
+                heads=cfg.heads,
+                use_ro_x=cfg.use_ro_x,
+                no_ro=cfg.no_ro,
+                gta=cfg.gta,
+            )
+
+            encoder = EMA(encoder)
+            encoder = encoder.ema_model
+
+            ch = 256
+
+            encoder_output_transform = MLP(
+                inp_dim=ch, outp_dim=cfg.slot_dim, hidden_dims=[2 * ch], initial_layer_norm=True,
+            )
+            initializer = FixedLearnedInit(n_slots=cfg.n_slots, dim=cfg.slot_dim, normalize_slots=cfg.normalize_slots)
+            slot_attention = SlotAttention(
+                inp_dim=cfg.slot_dim, slot_dim=cfg.slot_dim, n_iters=2, use_mlp=True,
+                normalize_slots=cfg.normalize_slots
+            )
+            decoder = MLPDecoder(inp_dim=cfg.slot_dim, outp_dim=ch, hidden_dims=[1024, 1024, 1024],
+                                 n_patches=n_patches)
+            predictor = TransformerEncoder(dim=cfg.slot_dim, n_blocks=1, n_heads=4,
+                                           normalize_output=cfg.normalize_slots)
+            latent_processor = LatentProcessor(corrector=slot_attention, predictor=predictor,
+                                               first_step_corrector_args={'n_iters': 3})
+            sa_model = SlotContrastAkornSAur(
+                encoder=encoder, encoder_output_transform=encoder_output_transform, initializer=initializer,
+                decoder=decoder, latent_processor=latent_processor, is_encoder_frozen=True,
+            )
+            weights = torch.load(cfg.slot_extractor_checkpoint_path, weights_only=True)['model']
+            sa_model.load_state_dict(weights)
         elif slot_extractor_model == 'savi':
             from sold.modeling.savi import Corrector, FullyConvolutionalEncoder, FullyConvolutionalDecoder, TransformerPredictor, Learned
             from envs.wrappers.savi_wrapper import SlotExtractor, load_savi_module

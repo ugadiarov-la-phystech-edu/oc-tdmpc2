@@ -130,6 +130,9 @@ savi_num_initial_iterations: 3
 savi_num_channels: [ 32, 32, 32, 32 ]
 savi_kernel_size: 5
 
+# slot-contrast
+normalize_slots: false
+
 # sold
 sold_dynamics_num_context: 3
 sold_dynamics_token_dim: 256
