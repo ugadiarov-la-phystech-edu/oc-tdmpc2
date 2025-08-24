@@ -240,6 +240,7 @@ def make_env(cfg, **kwargs):
             sa_model = AkornSAVi(encoder, features_projector, initializer, slot_attention, decoder, predictor,
                                   is_encoder_frozen=True)
             weights = torch.load(cfg.slot_extractor_checkpoint_path, weights_only=True)['model']
+            weights = {key: value for key, value in weights.items() if not key.startswith('image_decoder')}
             sa_model.load_state_dict(weights)
         elif slot_extractor_model == 'slot-contrast':
             from envs.wrappers.savi_wrapper import SlotExtractor
