@@ -5,10 +5,11 @@ from typing import NamedTuple
 import h5py
 import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import os
 import torch
 from torchvision.transforms import transforms
+from tqdm import tqdm
 
 
 class DatasetItem(NamedTuple):
@@ -218,14 +219,95 @@ class EpisodesDataset(Dataset):
             return len(self.index2episode)
 
 
-if __name__ == '__main__':
-    ds = DDLPFeaturesDataset(path='/tmp/robosuite', split='val', sample_length=5)
-    print('Length:', len(ds))
-    for i in range(len(ds)):
-        ds[i]
+class EpisodesSlotsDataset(Dataset):
+    def __init__(self, source_root, slots_root, mode, sample_length, slots_file_name):
+        assert mode in ['train', 'val', 'valid']
+        if mode == 'valid':
+            mode = 'val'
 
-    ds = EpisodesDataset(root='/media/elfray/hdd_ext4/projects/ddlp/datasets/cw_reaching-hard', mode='val', sample_length=3, res=64, episodic_on_train=False,
-                         episodic_on_val=False, use_actions=True, duplicate_on_episode_start=True)
-    print('Length:', len(ds))
-    for i in range(len(ds)):
-        ds[i]
+        self.source_root = os.path.join(source_root, mode)
+        self.slots_root = os.path.join(slots_root, mode)
+        self.mode = mode
+        self.sample_length = sample_length
+        self.slots_file_name = slots_file_name
+        # Get all numbers
+        self.episode_ids = sorted(os.listdir(self.source_root), key=lambda x: int(x))
+        self.episode_slots = []
+        self.episode_actions = []
+        self.episode_rewards = []
+
+        action_dim = None
+        action_type = None
+        min_action = np.inf
+        max_action = -np.inf
+        slot_dim = None
+        for episode_id in tqdm(self.episode_ids, desc=f'Split: {self.mode}'):
+            slots = np.load(os.path.join(self.slots_root, episode_id, self.slots_file_name))
+            if slot_dim is None:
+                slot_dim = slots.shape[1:]
+            else:
+                assert slots.shape[1:] == slot_dim, \
+                    f'Slot dimension mismatch. Expected: {slot_dim}. Actual: {slots.shape[1:]}. Episode: {episode_id}.'
+
+            actions = np.load(os.path.join(self.source_root, episode_id, 'actions.npy'))
+            if action_dim is None:
+                action_dim = actions.shape[1:]
+            else:
+                assert actions.shape[1:] == action_dim, \
+                    f'Action dimension mismatch. Expected: {action_dim}. Actual: {actions.shape[1:]}. Episode: {episode_id}.'
+
+            if action_type is None:
+                action_type = actions.dtype
+            else:
+                assert actions.dtype == action_type, \
+                    f'Action type mismatch. Expected: {action_type}. Actual: {actions.dtype}. Episode: {episode_id}.'
+
+            rewards = np.load(os.path.join(self.source_root, episode_id, 'rewards.npy'))
+            assert len(rewards.shape) == 1, f'Expected rewards as an array of scalars. Actual: {rewards.shape}. Episode: {episode_id}.'
+
+            assert actions.shape[0] == rewards.shape[0], \
+                f'Lengths of episode actions and rewards mismatch. Actions: {actions.shape[0]}. Rewards: {rewards.shape[0]}. Episode: {episode_id}.'
+
+            assert actions.shape[0] + 1 == slots.shape[0], \
+                f'Lengths of episode actions and slots mismatch. Actions: {actions.shape[0]}. Slots: {slots.shape[0]}. Episode: {episode_id}.'
+
+            if np.issubdtype(action_type, np.integer):
+                min_action = min(min_action, actions.min())
+                max_action = max(max_action, actions.max())
+
+            self.episode_slots.append(slots)
+            self.episode_actions.append(actions)
+            self.episode_rewards.append(rewards)
+
+        if np.issubdtype(action_type, np.integer):
+            assert min_action == 0, \
+                f'For discrete action spaces the minimal action is expected to be 0. Actual: {min_action}.'
+            self.n_actions = max_action + 1
+            self.action_space = 'discrete'
+        else:
+            self.action_space = 'continuous'
+
+    def __getitem__(self, index):
+        begin = np.random.choice(self.episode_slots[index].shape[0] - self.sample_length)
+        z = torch.as_tensor(self.episode_slots[index][begin: begin + self.sample_length], dtype=torch.float32)
+        reward = torch.as_tensor(self.episode_rewards[index][begin: begin + self.sample_length - 1], dtype=torch.float32)
+        action = torch.as_tensor(self.episode_actions[index][begin: begin + self.sample_length - 1])
+        if self.action_space == 'discrete':
+            action = torch.nn.functional.one_hot(action, num_classes=self.n_actions)
+
+        return DatasetItem(z=z, reward=reward, action=action.to(torch.float32))
+
+    def __len__(self):
+        return len(self.episode_slots)
+
+
+if __name__ == '__main__':
+    source_root = '/samsung/datasets/pick_specific_sold_policy'
+    slots_root = '/samsung/datasets/pick_specific_sold_policy_savi_slots'
+    mode = 'train'
+    sample_length = 5
+    slots_file_name = 'slots_savi.npy'
+    ds = EpisodesSlotsDataset(source_root, slots_root, mode, sample_length, slots_file_name)
+    dl = DataLoader(ds, batch_size=64, shuffle=True, num_workers=4, drop_last=True)
+    for batch in dl:
+        print()
