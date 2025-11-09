@@ -241,7 +241,7 @@ class EpisodesSlotsDataset(Dataset):
         min_action = np.inf
         max_action = -np.inf
         self._slot_dim = None
-        for episode_id in tqdm(self.episode_ids, desc=f'Split: {self.mode}'):
+        for episode_id in tqdm(self.episode_ids, desc=f'Indexing split: {self.mode}'):
             slots = np.load(os.path.join(self.slots_root, episode_id, self.slots_file_name))
             if self._slot_dim is None:
                 self._slot_dim = slots.shape[1:]
