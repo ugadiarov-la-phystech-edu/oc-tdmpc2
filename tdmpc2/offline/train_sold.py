@@ -58,6 +58,8 @@ def main(cfg: dict):
                                        cfg.batch_size, cfg.num_workers)
 
     cfg.action_dim = val_dataloader.dataset.action_dim[0]
+    assert len(cfg.action_lower_bound) == len(cfg.action_upper_bound), f'{len(cfg.action_lower_bound)} != {len(cfg.action_upper_bound)}'
+    assert len(cfg.action_lower_bound) == cfg.action_dim, f'{len(cfg.action_lower_bound)} != {cfg.action_dim}'
     cfg.multitask = False
     cfg.obs_shape = {'slots': val_dataloader.dataset.slot_dim}
     cfg.episode_length = cfg.time_limit
