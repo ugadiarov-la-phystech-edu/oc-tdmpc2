@@ -1,8 +1,12 @@
 """Utility functions."""
-import os
+import types
+import warnings
+from typing import Optional, Iterable, Union
+
 import numpy as np
 
 import torch
+from torch.nn.utils.clip_grad import _get_total_norm, _no_grad
 from torch.utils import data
 from torch import nn
 
@@ -402,3 +406,47 @@ def make_node_mlp_layers(num_layers, input_dim, hidden_dim, output_dim, act_fn, 
             layers.append(get_act_fn(act_fn))
 
     return layers
+
+
+@_no_grad
+def get_grad_norm(
+    parameters: Union[torch.Tensor, Iterable[torch.Tensor]],
+    norm_type: float = 2.0,
+    error_if_nonfinite: bool = False,
+    foreach: Optional[bool] = None,
+) -> torch.Tensor:
+    r"""Calculates the gradient norm of an iterable of parameters.
+
+    The norm is computed over the norms of the individual gradients of all parameters,
+    as if the norms of the individual gradients were concatenated into a single vector.
+
+    Args:
+        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
+            single Tensor that will have gradients normalized
+        norm_type (float, optional): type of the used p-norm. Can be ``'inf'`` for
+            infinity norm. Default: 2.0
+        error_if_nonfinite (bool, optional): if True, an error is thrown if the total
+            norm of the gradients from :attr:`parameters` is ``nan``,
+            ``inf``, or ``-inf``. Default: False
+        foreach (bool, optional): use the faster foreach-based implementation.
+            If ``None``, use the foreach implementation for CUDA and CPU native tensors and silently
+            fall back to the slow implementation for other device types.
+            Default: ``None``
+
+    Returns:
+        Total norm of the parameter gradients (viewed as a single vector).
+    """
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    else:
+        is_generator = isinstance(parameters, types.GeneratorType)
+        # prevent generators from being exhausted
+        parameters = list(parameters)
+        if is_generator and len(parameters) == 0:
+            warnings.warn(
+                "`parameters` is an empty generator, no gradient clipping will occur.",
+                stacklevel=3,
+            )
+    grads = [p.grad for p in parameters if p.grad is not None]
+    total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
+    return total_norm

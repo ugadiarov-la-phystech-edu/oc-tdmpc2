@@ -236,25 +236,25 @@ class EpisodesSlotsDataset(Dataset):
         self.episode_actions = []
         self.episode_rewards = []
 
-        action_dim = None
+        self._action_dim = None
         action_type = None
         min_action = np.inf
         max_action = -np.inf
-        slot_dim = None
+        self._slot_dim = None
         for episode_id in tqdm(self.episode_ids, desc=f'Split: {self.mode}'):
             slots = np.load(os.path.join(self.slots_root, episode_id, self.slots_file_name))
-            if slot_dim is None:
-                slot_dim = slots.shape[1:]
+            if self._slot_dim is None:
+                self._slot_dim = slots.shape[1:]
             else:
-                assert slots.shape[1:] == slot_dim, \
-                    f'Slot dimension mismatch. Expected: {slot_dim}. Actual: {slots.shape[1:]}. Episode: {episode_id}.'
+                assert slots.shape[1:] == self._slot_dim, \
+                    f'Slot dimension mismatch. Expected: {self._slot_dim}. Actual: {slots.shape[1:]}. Episode: {episode_id}.'
 
             actions = np.load(os.path.join(self.source_root, episode_id, 'actions.npy'))
-            if action_dim is None:
-                action_dim = actions.shape[1:]
+            if self._action_dim is None:
+                self._action_dim = actions.shape[1:]
             else:
-                assert actions.shape[1:] == action_dim, \
-                    f'Action dimension mismatch. Expected: {action_dim}. Actual: {actions.shape[1:]}. Episode: {episode_id}.'
+                assert actions.shape[1:] == self._action_dim, \
+                    f'Action dimension mismatch. Expected: {self._action_dim}. Actual: {actions.shape[1:]}. Episode: {episode_id}.'
 
             if action_type is None:
                 action_type = actions.dtype
@@ -283,9 +283,21 @@ class EpisodesSlotsDataset(Dataset):
             assert min_action == 0, \
                 f'For discrete action spaces the minimal action is expected to be 0. Actual: {min_action}.'
             self.n_actions = max_action + 1
-            self.action_space = 'discrete'
+            self._action_space = 'discrete'
         else:
-            self.action_space = 'continuous'
+            self._action_space = 'continuous'
+
+    @property
+    def action_dim(self):
+        return self._action_dim
+
+    @property
+    def slot_dim(self):
+        return self._slot_dim
+
+    @property
+    def action_space(self):
+        return self._action_space
 
     def __getitem__(self, index):
         begin = np.random.choice(self.episode_slots[index].shape[0] - self.sample_length)

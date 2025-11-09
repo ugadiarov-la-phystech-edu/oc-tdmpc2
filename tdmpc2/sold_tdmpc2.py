@@ -6,6 +6,7 @@ from tensordict import set_lazy_legacy, TensorDict
 from common import math
 from common.scale import RunningScale
 from common.sold_world_model import SoldWorldModel
+from common.utils import get_grad_norm
 from common.world_model import WorldModel, OCWorldModel, DDLPWorldModel, DDLPGNNWorldModel
 
 
@@ -252,7 +253,7 @@ class SoldTDMPC2:
             a += std * torch.randn(self.cfg.action_dim, device=std.device)
         return a.clamp_(-1, 1)
 
-    def update_pi(self, zs, task, prev_actions=None):
+    def update_pi(self, zs, task, prev_actions=None, do_update=True):
         """
         Update policy using a sequence of latent states.
 
@@ -266,26 +267,34 @@ class SoldTDMPC2:
         batch_size, seq_len = zs.size()[:2]
         start_prediction_index = seq_len - self.cfg.horizon
         # zs = zs.flatten(end_dim=1)
-        self.pi_optim.zero_grad(set_to_none=True)
+        if do_update:
+            self.pi_optim.zero_grad(set_to_none=True)
+
         self.model.track_q_grad(False)
         _, pis, log_pis, _ = self.model.pi(zs, task, start=0)
         if prev_actions is not None:
             prev_actions = prev_actions.flatten(end_dim=1)
 
         qs = self.model.Q(zs, pis, task, return_type='avg', prev_actions=prev_actions, start=start_prediction_index)
-        self.scale.update(qs[0])
+        if do_update:
+            self.scale.update(qs[0])
+
         qs = self.scale(qs)
         log_pis = log_pis[:, -self.cfg.horizon:]
 
         # Loss is a weighted sum of Q-values
         rho = torch.pow(self.cfg.rho, torch.arange(self.cfg.horizon, device=self.device))
         pi_loss = ((self.cfg.entropy_coef * log_pis - qs).mean(dim=(0, -1)) * rho).mean()
-        pi_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model._pi.parameters(), self.cfg.grad_clip_norm)
-        self.pi_optim.step()
+
+        pi_grad_norm = None
+        if do_update:
+            pi_loss.backward()
+            pi_grad_norm = torch.nn.utils.clip_grad_norm_(self.model._pi.parameters(), self.cfg.grad_clip_norm).item()
+            self.pi_optim.step()
+
         self.model.track_q_grad(True)
 
-        return pi_loss.item()
+        return pi_loss.item(), pi_grad_norm
 
     @torch.no_grad()
     def _td_target(self, z, reward, task, prev_actions=None):
@@ -312,17 +321,7 @@ class SoldTDMPC2:
         discount = self.discount[task].unsqueeze(-1) if self.cfg.multitask else self.discount
         return reward + discount * self.model.Q(z, pi, task, return_type='min', target=True, start=start_prediction_index)
 
-    def update(self, buffer):
-        """
-        Main update function. Corresponds to one iteration of model learning.
-
-        Args:
-            buffer (common.buffer.Buffer): Replay buffer.
-
-        Returns:
-            dict: Dictionary of training statistics.
-        """
-        obs, action, reward, task = buffer.sample()
+    def step(self, obs, action, reward, task, do_update=True):
         next_action = action[1:].swapaxes(0, 1)
         reward = reward.swapaxes(0, 1)[:, -self.cfg.horizon:]
 
@@ -338,9 +337,10 @@ class SoldTDMPC2:
 
             td_targets = self._td_target(z, reward, task, prev_actions=prev_actions)
 
-        # Prepare for update
-        self.optim.zero_grad(set_to_none=True)
-        self.model.train()
+        if do_update:
+            # Prepare for update
+            self.optim.zero_grad(set_to_none=True)
+            self.model.train()
 
         weight = torch.pow(self.cfg.rho, torch.arange(self.cfg.horizon, device=self.device))
         consistency_loss = torch.as_tensor(0, dtype=torch.float32, device=self.device)
@@ -387,29 +387,53 @@ class SoldTDMPC2:
                 self.cfg.value_coef * value_loss
         )
 
-        # Update model
-        total_loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
-        self.optim.step()
+        statistics = {}
+        if do_update:
+            # Update model
+            total_loss.backward()
+            statistics['encoder_grad_norm'] = get_grad_norm(self.model._encoder.parameters()).item()
+            statistics['dynamics_grad_norm'] = get_grad_norm(self.model._dynamics.parameters()).item()
+            statistics['reward_grad_norm'] = get_grad_norm(self.model._reward.parameters()).item()
+            statistics['Qs_grad_norm'] = get_grad_norm(self.model._Qs.parameters()).item()
+            statistics['grad_norm'] = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm).item()
+            self.optim.step()
 
         # Update policy
         prev_actions = None
         if self.cfg.obs == 'ddlp' and self.cfg.world_model_type == 'eit' and self.cfg.transition_model_type == 'ddlp':
             prev_actions = action.detach()
 
-        pi_loss = self.update_pi(torch.cat([z_context, _zs], dim=1).detach(), task, prev_actions)
+        pi_loss, pi_grad_norm = self.update_pi(torch.cat([z_context, _zs], dim=1).detach(), task, prev_actions,
+                                               do_update=do_update)
 
-        # Update target Q-functions
-        self.model.soft_update_target_Q()
+        if do_update:
+            # Update target Q-functions
+            self.model.soft_update_target_Q()
+            self.model.eval()
+            statistics['pi_grad_norm'] = pi_grad_norm
 
-        # Return training statistics
-        self.model.eval()
-        return {
-            "consistency_loss": float(consistency_loss.mean().item()),
-            "reward_loss": float(reward_loss.mean().item()),
-            "value_loss": float(value_loss.mean().item()),
+        statistics.update({
+            "consistency_loss": consistency_loss.mean().item(),
+            "reward_loss": reward_loss.mean().item(),
+            "value_loss": value_loss.mean().item(),
             "pi_loss": pi_loss,
-            "total_loss": float(total_loss.mean().item()),
-            "grad_norm": float(grad_norm),
-            "pi_scale": float(self.scale.value),
-        }
+            "total_loss": total_loss.mean().item(),
+            "pi_scale": self.scale.value,
+        })
+        statistics = {k: float(v) for k, v in statistics.items()}
+
+        # Return statistics
+        return statistics
+
+    def update(self, buffer):
+        """
+        Main update function. Corresponds to one iteration of model learning.
+
+        Args:
+            buffer (common.buffer.Buffer): Replay buffer.
+
+        Returns:
+            dict: Dictionary of training statistics.
+        """
+        obs, action, reward, task = buffer.sample()
+        return self.step(obs, action, reward, task)

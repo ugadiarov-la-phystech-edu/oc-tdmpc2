@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - config
+  - _self_
+
+source_root: ???
+slots_root: ???
+slots_file_name: ???
+num_workers: 1
+num_epochs: null
+log_every_epochs: 1
+log_every_batches: 50
+checkpoint_every_epochs: 10
