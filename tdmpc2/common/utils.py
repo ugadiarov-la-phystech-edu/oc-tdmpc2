@@ -1,12 +1,10 @@
 """Utility functions."""
-import types
-import warnings
-from typing import Optional, Iterable, Union
+from typing import Optional, Iterable, Union, Dict, Tuple, List
 
 import numpy as np
 
 import torch
-from torch.nn.utils.clip_grad import _get_total_norm, _no_grad
+from torch.utils._foreach_utils import _group_tensors_by_device_and_dtype, _has_foreach_support
 from torch.utils import data
 from torch import nn
 
@@ -408,11 +406,10 @@ def make_node_mlp_layers(num_layers, input_dim, hidden_dim, output_dim, act_fn, 
     return layers
 
 
-@_no_grad
+@torch.no_grad()
 def get_grad_norm(
     parameters: Union[torch.Tensor, Iterable[torch.Tensor]],
     norm_type: float = 2.0,
-    error_if_nonfinite: bool = False,
     foreach: Optional[bool] = None,
 ) -> torch.Tensor:
     r"""Calculates the gradient norm of an iterable of parameters.
@@ -438,15 +435,27 @@ def get_grad_norm(
     """
     if isinstance(parameters, torch.Tensor):
         parameters = [parameters]
-    else:
-        is_generator = isinstance(parameters, types.GeneratorType)
-        # prevent generators from being exhausted
-        parameters = list(parameters)
-        if is_generator and len(parameters) == 0:
-            warnings.warn(
-                "`parameters` is an empty generator, no gradient clipping will occur.",
-                stacklevel=3,
-            )
     grads = [p.grad for p in parameters if p.grad is not None]
-    total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
+    norm_type = float(norm_type)
+    if len(grads) == 0:
+        return torch.tensor(0.)
+    first_device = grads[0].device
+    grouped_grads: Dict[Tuple[torch.device, torch.dtype], List[List[torch.Tensor]]] \
+        = _group_tensors_by_device_and_dtype([[g.detach() for g in grads]])  # type: ignore[assignment]
+
+    if norm_type == torch.inf:
+        norms = [torch.linalg.vector_norm(g.detach(), torch.inf).to(first_device) for g in grads]
+        total_norm = norms[0] if len(norms) == 1 else torch.max(torch.stack(norms))
+    else:
+        norms = []
+        for ((device, _), ([grads], _)) in grouped_grads.items():  # type: ignore[assignment]
+            if (foreach is None or foreach) and _has_foreach_support(grads, device=device):
+                norms.extend(torch._foreach_norm(grads, norm_type))
+            elif foreach:
+                raise RuntimeError(f'foreach=True was passed, but can\'t use the foreach API on {device.type} tensors')
+            else:
+                norms.extend([torch.linalg.vector_norm(g, norm_type) for g in grads])
+
+        total_norm = torch.linalg.vector_norm(torch.stack([norm.to(first_device) for norm in norms]), norm_type)
+
     return total_norm
