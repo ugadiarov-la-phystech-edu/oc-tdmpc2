@@ -128,7 +128,7 @@ def main(cfg: dict):
 
         with tqdm(total=n_val_dataloader, desc=f"Epoch: {epoch}. Val:") as pbar_val:
             val_statistics = collections.Counter()
-            for i, batch in enumerate(train_dataloader):
+            for i, batch in enumerate(val_dataloader):
                 batch = batch.to(cfg.device)
                 statistics = step(agent, batch, num_cut_frames, probs, do_update=False)
                 pbar_val.set_postfix(statistics)
