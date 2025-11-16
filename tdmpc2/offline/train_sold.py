@@ -108,6 +108,7 @@ def main(cfg: dict):
     work_dir = Path(hydra.utils.get_original_cwd()) / 'logs' / cfg.wandb_project / cfg.wandb_run_name
     total_loss = math.inf
     slot_norm = train_dataloader.dataset.get_slot_norm()
+    print('Slot norm:', slot_norm, flush=True)
     for epoch in itertools.count(start=start_epoch, step=1):
         if epoch >= cfg.num_epochs:
             break
