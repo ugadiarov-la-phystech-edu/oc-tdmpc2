@@ -37,14 +37,17 @@ def set_random_seed(seed: int, using_cuda: bool = False) -> None:
         torch.backends.cudnn.benchmark = False
 
 
-def make_dataloader(source_root, slots_root, mode, sample_length, slots_file_name, batch_size, num_workers):
+def make_dataloader(source_root, slots_root, mode, sample_length, slots_file_name, batch_size, num_workers, drop_last=None):
     dataset = EpisodesSlotsDataset(source_root, slots_root, mode, sample_length, slots_file_name)
     is_train = mode == "train"
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=is_train, num_workers=num_workers, drop_last=is_train)
+    if drop_last is None:
+        drop_last = is_train
+
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=is_train, num_workers=num_workers, drop_last=drop_last)
     return dataloader
 
 
-def step(agent, batch, num_cut_frames, probs, do_update):
+def step(agent, batch, num_cut_frames, probs, do_update, slot_norm=1.):
     obs = batch.z.swapaxes(0, 1)
     action = torch.nn.functional.pad(batch.action, pad=(0, 0, 1, 0), value=torch.nan).swapaxes(0, 1)
     reward = torch.nn.functional.pad(batch.reward, pad=(1, 0), value=torch.nan).swapaxes(0, 1).unsqueeze(-1)
@@ -55,6 +58,7 @@ def step(agent, batch, num_cut_frames, probs, do_update):
     is_grad_enabled = torch.is_grad_enabled()
     torch.set_grad_enabled(do_update)
     statistics = agent.step(obs, action, reward, None, do_update=do_update)
+    statistics['consistency_loss_relative'] = statistics['consistency_loss'] / slot_norm
     torch.set_grad_enabled(is_grad_enabled)
     return statistics
 
@@ -103,6 +107,7 @@ def main(cfg: dict):
     n_val_dataloader = len(val_dataloader)
     work_dir = Path(hydra.utils.get_original_cwd()) / 'logs' / cfg.wandb_project / cfg.wandb_run_name
     total_loss = math.inf
+    slot_norm = train_dataloader.dataset.get_slot_norm()
     for epoch in itertools.count(start=start_epoch, step=1):
         if epoch >= cfg.num_epochs:
             break
@@ -111,7 +116,7 @@ def main(cfg: dict):
             train_statistics = collections.Counter()
             for i, batch in enumerate(train_dataloader):
                 batch = batch.to(cfg.device)
-                statistics = step(agent, batch, num_cut_frames, probs, do_update=True)
+                statistics = step(agent, batch, num_cut_frames, probs, do_update=True, slot_norm=slot_norm)
                 pbar_train.set_postfix(statistics)
                 pbar_train.update()
                 train_statistics.update(statistics)

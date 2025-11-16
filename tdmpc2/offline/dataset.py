@@ -299,6 +299,15 @@ class EpisodesSlotsDataset(Dataset):
     def action_space(self):
         return self._action_space
 
+    def get_slot_norm(self):
+        n = 0
+        norm = 0
+        for slots in self.episode_slots:
+            norm += np.mean(slots ** 2).item() * slots.shape[0]
+            n += slots.shape[0]
+
+        return norm / n
+
     def __getitem__(self, index):
         begin = np.random.choice(self.episode_slots[index].shape[0] - self.sample_length)
         z = torch.as_tensor(self.episode_slots[index][begin: begin + self.sample_length], dtype=torch.float32)
