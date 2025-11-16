@@ -110,7 +110,7 @@ class SoldTDMPC2:
         else:
             obs = torch.stack(list(obs)).to(self.device, non_blocking=True).unsqueeze(0) # (1, obs.shape)
 
-        if t0:
+        if t0 or self.cfg.sold_dynamics_num_context == 1:
             prev_actions = torch.empty(size=(obs.size()[0], 0, self.cfg.action_dim), device=self.device, dtype=torch.float32)
         else:
             prev_actions = torch.as_tensor(np.stack(prev_actions), device=self.cfg.device).unsqueeze(0)
