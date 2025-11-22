@@ -309,7 +309,7 @@ class EpisodesSlotsDataset(Dataset):
         return norm / n
 
     def __getitem__(self, index):
-        begin = np.random.choice(self.episode_slots[index].shape[0] - self.sample_length)
+        begin = np.random.choice(self.episode_slots[index].shape[0] - self.sample_length + 1)
         z = torch.as_tensor(self.episode_slots[index][begin: begin + self.sample_length], dtype=torch.float32)
         reward = torch.as_tensor(self.episode_rewards[index][begin: begin + self.sample_length - 1], dtype=torch.float32)
         action = torch.as_tensor(self.episode_actions[index][begin: begin + self.sample_length - 1])
