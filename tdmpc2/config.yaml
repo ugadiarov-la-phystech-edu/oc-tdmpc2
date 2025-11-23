@@ -114,10 +114,12 @@ maxpool: true
 heads: 8
 gta: true
 N: 4
+gamma: 1
 J: attn
 use_omega: false
 global_omg: false
 c_norm: gn
+learn_omg: false
 use_ro_x: false
 no_ro: false
 project: true
